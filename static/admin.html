@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - Quiz Manager</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body class="p-6">
+
+  <div class="container max-w-4xl">
+    <div class="header-container glass-panel p-6 mb-8 flex justify-between items-center">
+      <div>
+        <h1 class="text-2xl font-bold text-gradient">Admin Dashboard</h1>
+        <p class="text-xs text-gray-400">Manajemen Pengguna &amp; Hak Akses</p>
+      </div>
+      <button onclick="window.Auth.logout()" class="btn btn-danger text-sm">Logout</button>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Form Add User -->
+      <div class="glass-panel p-6 md:col-span-1">
+        <h3 class="text-lg font-bold mb-4 text-gradient">Tambah Pengguna</h3>
+        <form id="form-add-user" class="flex flex-col gap-4">
+          <div>
+            <label class="text-xs text-gray-400 font-bold">USERNAME</label>
+            <input type="text" id="add-username" class="input-field mt-1" placeholder="Username baru" required>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">PASSWORD</label>
+            <input type="password" id="add-password" class="input-field mt-1" placeholder="Password baru" required>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">ROLE</label>
+            <select id="add-role" class="input-field mt-1" style="background-color: #0f172a;">
+              <option value="Host" selected>Host</option>
+              <option value="Admin">Admin</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary w-full mt-2">Simpan User</button>
+        </form>
+      </div>
+
+      <!-- Users List -->
+      <div class="glass-panel p-6 md:col-span-2">
+        <h3 class="text-lg font-bold mb-4 text-gradient">Daftar Pengguna</h3>
+        <div class="overflow-x-auto">
+          <table class="custom-table w-full">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Role</th>
+                <th class="text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body">
+              <tr>
+                <td colspan="3" class="text-center text-gray-500 py-4">Memuat data...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Room - Participant View</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+  <!-- HTML2PDF CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body class="flex items-center justify-center p-4 min-h-screen">
+
+  <div class="w-full max-w-2xl">
+
+    <!-- A. CLIENT WAITING ROOM VIEW -->
+    <div id="client-waiting-section" class="glass-panel p-8 text-center pulse-element">
+      <span class="text-xs text-indigo-400 font-bold uppercase tracking-wider block mb-2">Kamu Terdaftar</span>
+      <h1 class="text-3xl font-extrabold mb-1" id="client-wait-quiz-title">Loading Quiz Name...</h1>
+      
+      <div class="my-6 py-4 px-6 bg-gray-900 border border-gray-800 rounded-xl inline-block">
+        <span class="text-xs text-gray-500 font-bold tracking-wider">ROOM CODE</span>
+        <div class="text-2xl font-extrabold tracking-widest text-indigo-400 mt-1" id="client-wait-room-code">-</div>
+      </div>
+
+      <div class="mb-8">
+        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-yellow-500 bg-opacity-10 border border-yellow-500 border-opacity-25 text-yellow-500 text-sm font-semibold">
+          <span class="w-2 h-2 rounded-full bg-yellow-500 animate-ping"></span>
+          Waiting Host to Start Quiz...
+        </div>
+      </div>
+
+      <div class="text-left border-t border-gray-800 pt-6">
+        <h3 class="text-sm font-bold text-gray-400 uppercase mb-4">Peserta Lain di Room:</h3>
+        <ul id="client-waiting-participants-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <!-- Renders active participants -->
+          <li class="text-gray-500 text-xs">Memuat nama peserta...</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- B. ACTIVE QUIZ PLAY VIEW -->
+    <div id="client-quiz-section" class="glass-panel p-8 hidden">
+      <!-- Header info & Timer -->
+      <div class="flex justify-between items-center mb-6 pb-4 border-b border-gray-800">
+        <div>
+          <span class="text-xs text-gray-400 font-bold uppercase" id="quiz-progress-text">Soal 1 dari 10</span>
+          <h2 class="text-lg font-bold text-gray-200" id="quiz-active-title">Safety Awareness</h2>
+        </div>
+        <div class="text-right">
+          <span class="text-xs text-gray-400 font-bold uppercase block">Sisa Waktu</span>
+          <span class="text-2xl font-mono font-extrabold text-red-400" id="quiz-timer">00:00</span>
+        </div>
+      </div>
+
+      <!-- Question Text -->
+      <div class="mb-8">
+        <p class="text-lg md:text-xl font-medium text-white leading-relaxed" id="quiz-question-text">
+          Loading Question...
+        </p>
+      </div>
+
+      <!-- Option Buttons -->
+      <div class="flex flex-col gap-4 mb-8" id="client-mcq-container">
+        <button onclick="selectOption('A')" id="btn-opt-A" class="option-btn">
+          <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold mr-4 text-xs">A</span>
+          <span id="text-opt-A">Option A text</span>
+        </button>
+        <button onclick="selectOption('B')" id="btn-opt-B" class="option-btn">
+          <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold mr-4 text-xs">B</span>
+          <span id="text-opt-B">Option B text</span>
+        </button>
+        <button onclick="selectOption('C')" id="btn-opt-C" class="option-btn">
+          <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold mr-4 text-xs">C</span>
+          <span id="text-opt-C">Option C text</span>
+        </button>
+        <button onclick="selectOption('D')" id="btn-opt-D" class="option-btn">
+          <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold mr-4 text-xs">D</span>
+          <span id="text-opt-D">Option D text</span>
+        </button>
+      </div>
+
+      <!-- Textarea for Essay -->
+      <div class="flex flex-col gap-2 mb-8 hidden" id="client-essay-container">
+        <label class="text-xs text-gray-400 font-bold">JAWABAN ESSAY ANDA</label>
+        <textarea id="client-essay-answer" class="input-field" rows="5" placeholder="Ketikkan jawaban essay Anda di sini secara lengkap..." oninput="saveEssayAnswer()"></textarea>
+      </div>
+
+      <!-- Navigation buttons -->
+      <div class="flex justify-between items-center">
+        <button id="btn-prev-question" onclick="prevQuestion()" class="btn btn-secondary text-sm">Kembali</button>
+        <button id="btn-next-question" onclick="nextQuestion()" class="btn btn-primary text-sm">Selanjutnya</button>
+      </div>
+    </div>
+
+    <!-- C. QUIZ RESULT & REVIEW VIEW -->
+    <div id="client-result-section" class="glass-panel p-8 hidden">
+      <div class="text-center mb-8">
+        <span class="text-xs text-indigo-400 font-bold uppercase tracking-wider block mb-2">Quiz Selesai!</span>
+        <h1 class="text-3xl font-extrabold text-white mb-6">Hasil Penilaian Anda</h1>
+
+        <div class="flex flex-wrap justify-center gap-6 mb-4">
+          <div class="relative inline-flex items-center justify-center p-1 rounded-full bg-indigo-500 bg-opacity-10 border-4 border-indigo-500 border-opacity-20" style="width: 140px; height: 140px;">
+            <div class="text-center">
+              <span class="text-xs text-gray-400 font-semibold block uppercase">Score</span>
+              <span class="text-4xl font-extrabold text-white" id="result-score">0</span>
+            </div>
+          </div>
+          
+          <div class="relative inline-flex items-center justify-center p-1 rounded-full bg-yellow-500 bg-opacity-10 border-4 border-yellow-500 border-opacity-20" style="width: 140px; height: 140px;">
+            <div class="text-center">
+              <span class="text-xs text-gray-400 font-semibold block uppercase">Peringkat</span>
+              <span class="text-4xl font-extrabold text-yellow-400">#<span id="result-rank">-</span></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <span class="badge py-2 px-6 text-sm" id="result-status-badge">PASS</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 max-w-xs mx-auto text-sm mb-6">
+          <div class="bg-gray-950 p-3 rounded-lg border border-gray-800 text-center">
+            <span class="text-xs text-gray-500 uppercase font-semibold">Benar</span>
+            <div class="text-lg font-bold text-green-400" id="result-stat-correct">0</div>
+          </div>
+          <div class="bg-gray-950 p-3 rounded-lg border border-gray-800 text-center">
+            <span class="text-xs text-gray-500 uppercase font-semibold">Salah</span>
+            <div class="text-lg font-bold text-red-400" id="result-stat-incorrect">0</div>
+          </div>
+        </div>
+
+        <button id="btn-download-pdf-client" class="btn btn-primary text-sm px-8">Download PDF Result</button>
+      </div>
+
+      <!-- Printable Area (Result Certificate style) -->
+      <div id="client-pdf-print-container" class="bg-white p-8 text-gray-800 text-sm hidden" style="font-family: Arial, sans-serif; min-height: 297mm; box-sizing: border-box; width: 100%;">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-6 pb-4" style="border-bottom: 2px solid #0056b3; display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <!-- Logo SVG Clover -->
+            <svg width="56" height="56" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="50" cy="34" r="16" fill="#00aeef" style="mix-blend-mode: multiply;" />
+              <circle cx="50" cy="66" r="16" fill="#f9a01b" style="mix-blend-mode: multiply;" />
+              <circle cx="34" cy="50" r="16" fill="#e5007d" style="mix-blend-mode: multiply;" />
+              <circle cx="68" cy="50" r="16" fill="#8cc63f" style="mix-blend-mode: multiply;" />
+              <circle cx="50" cy="50" r="8" fill="#ffffff" />
+            </svg>
+            <div style="text-align: left;">
+              <div style="font-size: 26px; font-weight: 800; color: #283e94; line-height: 1; font-family: Arial, sans-serif; letter-spacing: -0.5px;">Power Pro</div>
+              <div style="font-size: 18px; color: #6473b6; line-height: 1; font-family: Arial, sans-serif; margin-top: 4px; font-weight: normal;">Hotel System</div>
+            </div>
+          </div>
+          <div style="text-align: right; font-family: Arial, sans-serif;">
+            <div style="font-weight: 800; font-size: 13px; color: #000000; line-height: 1.3;">P.T. Infotek Jaya Makmur</div>
+            <div style="font-size: 10px; color: #000000; line-height: 1.3;">Jl. Gading Kirana Utara, Blok F10/No. 20-21</div>
+            <div style="font-size: 10px; color: #000000; line-height: 1.3;">Kelapa Gading Barat, Kelapa Gading</div>
+            <div style="font-size: 10px; color: #000000; line-height: 1.3;">Jakarta Utara - 14240</div>
+            <div style="font-size: 10px; color: #000000; line-height: 1.3;">Ph. 021 450 7017</div>
+            <div style="font-size: 10px; color: #000000; line-height: 1.3;">NPWP : 01.882.371.6-043-000</div>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h2 style="font-size: 18px; font-weight: 800; color: #111827; margin: 0; text-transform: uppercase; letter-spacing: 0.05em;">ASSESSMENT REPORT</h2>
+          <p style="font-size: 11px; color: #4b5563; margin: 4px 0 0 0;">Quiz Result Certificate</p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px;">
+          <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+            <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Day & Date</span>
+            <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="pdf-date">-</div>
+          </div>
+          <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+            <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Participant Name</span>
+            <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="pdf-participant-name">-</div>
+          </div>
+          <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+            <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Department</span>
+            <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="pdf-department">-</div>
+          </div>
+          <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+            <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Quiz Name</span>
+            <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="pdf-quiz-name">-</div>
+          </div>
+          <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+            <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Skor / Kelulusan</span>
+            <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;">
+              <span id="pdf-score">0</span> (<span id="pdf-status">-</span>)
+            </div>
+          </div>
+          <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+            <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Peringkat</span>
+            <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;">
+              #<span id="pdf-rank">-</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 24px;" id="pdf-questions-review-list">
+          <!-- Dynamically populated step-by-step corrections -->
+        </div>
+      </div>
+
+      <!-- Question Review Panel -->
+      <div class="border-t border-gray-800 pt-6">
+        <h3 class="text-lg font-bold mb-4">Review Soal</h3>
+        <div id="result-review-list" class="flex flex-col gap-4">
+          <!-- List of question reviews -->
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/api.js"></script>
+  <script src="js/realtime.js"></script>
+  <script src="js/room.js"></script>
+  <script src="js/timer.js"></script>
+  <script src="js/result.js"></script>
+</body>
+</html>

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Host Dashboard - Quiz Platform</title>
+  <!-- Tailwind for grid/spacing utilities -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+  <!-- HTML2PDF CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- QRCode CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body class="min-h-screen flex flex-col md:flex-row">
+
+  <!-- SIDEBAR MENU -->
+  <div class="w-full md:w-64 bg-gray-950 border-r border-gray-800 p-6 flex flex-col justify-between">
+    <div>
+      <div class="mb-8 text-center md:text-left">
+        <h2 class="text-xl font-extrabold text-gradient">HOST PORTAL</h2>
+        <p class="text-xs text-gray-400 mt-1">Quiz Administrator Panel</p>
+      </div>
+
+      <nav class="flex flex-col gap-2">
+        <button onclick="switchTab('question-bank')" id="tab-question-bank" class="nav-btn active flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+          📂 Bank Soal (Question Bank)
+        </button>
+        <button onclick="switchTab('create-quiz')" id="tab-create-quiz" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+          📝 Buat Kuis (Create Quiz)
+        </button>
+        <button onclick="switchTab('waiting-room')" id="tab-waiting-room" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+          ⌛ Waiting Room
+        </button>
+        <button onclick="switchTab('active-monitoring')" id="tab-active-monitoring" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+          📊 Monitoring &amp; Live Score
+        </button>
+        <button onclick="switchTab('quiz-history')" id="tab-quiz-history" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+          📜 Riwayat Kuis &amp; Laporan
+        </button>
+      </nav>
+    </div>
+
+    <div class="mt-8 pt-6 border-t border-gray-800 text-center md:text-left">
+      <div class="text-sm font-semibold text-gray-300 mb-4" id="host-welcome">Host User</div>
+      <button onclick="window.Auth.logout()" class="btn btn-danger w-full text-sm">Logout</button>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT AREA -->
+  <main class="flex-1 p-6 md:p-8 overflow-y-auto">
+
+    <!-- 1. QUESTION BANK SECTION -->
+    <section id="section-question-bank" class="tab-content">
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold text-gradient">Bank Soal</h2>
+        <button onclick="openQuestionModal()" class="btn btn-primary text-sm">+ Tambah Soal</button>
+      </div>
+
+      <div class="glass-panel p-6">
+        <div class="mb-4 flex items-center justify-between">
+          <span class="text-sm text-gray-400 font-medium">Filter Kategori:</span>
+          <select id="question-category-filter" class="input-field py-1 px-3 max-w-xs" style="background-color: #0f172a; width: 180px;">
+            <option value="All">Semua Kategori</option>
+          </select>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="custom-table w-full">
+            <thead>
+              <tr>
+                <th>Pertanyaan</th>
+                <th>Kategori</th>
+                <th>Kunci Jawaban</th>
+                <th class="text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="question-bank-tbody">
+              <tr>
+                <td colspan="4" class="text-center text-gray-500 py-4">Memuat data soal...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. CREATE QUIZ SECTION -->
+    <section id="section-create-quiz" class="tab-content hidden">
+      <h2 class="text-2xl font-bold text-gradient mb-6">Buat Kuis Baru</h2>
+      
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Input Details -->
+        <div class="glass-panel p-6 lg:col-span-1 flex flex-col gap-4">
+          <h3 class="text-lg font-bold mb-2">Parameter Kuis</h3>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">NAMA KUIS</label>
+            <input type="text" id="quiz-name" class="input-field mt-1" placeholder="Contoh: Safety Awareness" required>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">DURASI (MENIT)</label>
+            <input type="number" id="quiz-duration" class="input-field mt-1" value="20" min="1" required>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">PASSING GRADE (%)</label>
+            <input type="number" id="quiz-passing-grade" class="input-field mt-1" value="80" min="0" max="100" required>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">KATEGORI SOAL</label>
+            <select id="quiz-category-select" class="input-field mt-1" style="background-color: #0f172a;">
+              <option value="All">Semua Kategori</option>
+            </select>
+          </div>
+          <button id="btn-generate-quiz" class="btn btn-primary w-full mt-2">Generate Room &amp; Kuis</button>
+        </div>
+
+        <!-- Question Selection -->
+        <div class="glass-panel p-6 lg:col-span-2">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold">Pilih Soal yang Dimasukkan</h3>
+            <span class="text-xs text-gray-400 font-semibold" id="selected-questions-count">0 Terpilih</span>
+          </div>
+          <div class="overflow-y-auto max-h-96 pr-2" id="quiz-question-list-container">
+            <!-- Questions to select from -->
+            <p class="text-gray-500 text-sm">Memuat daftar soal...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. WAITING ROOM SECTION -->
+    <section id="section-waiting-room" class="tab-content hidden">
+      <h2 class="text-2xl font-bold text-gradient mb-6">Waiting Room</h2>
+      
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="glass-panel p-6 flex flex-col items-center justify-center text-center">
+          <h3 class="text-lg font-bold mb-1" id="wait-quiz-title">Pilih/Buat Kuis Terlebih Dahulu</h3>
+          <p class="text-xs text-orange-400 font-semibold mb-6 uppercase" id="wait-quiz-status">STATUS : WAITING FOR START...</p>
+
+          <!-- Room Code Card -->
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6 w-full max-w-xs">
+            <span class="text-xs text-gray-500 font-bold tracking-wider">ROOM CODE</span>
+            <div class="text-3xl font-extrabold tracking-widest text-indigo-400 my-1" id="wait-room-code">-</div>
+          </div>
+
+          <!-- QR Code Anchor -->
+          <div id="wait-qrcode" class="bg-white p-3 rounded-lg mb-6 flex items-center justify-center" style="width: 156px; height: 156px;">
+            <div class="text-gray-400 text-xs">QR Code</div>
+          </div>
+
+          <button id="btn-start-quiz" class="btn btn-success w-full max-w-xs" disabled>START QUIZ</button>
+        </div>
+
+        <div class="glass-panel p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold">Peserta Terdaftar</h3>
+            <span class="badge badge-waiting" id="wait-participants-count">0 Peserta</span>
+          </div>
+          <ul id="wait-participants-list" class="flex flex-col gap-2 max-h-96 overflow-y-auto">
+            <li class="text-gray-500 text-sm text-center py-4">Menunggu peserta masuk...</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. ACTIVE MONITORING & LIVE SCORE SECTION -->
+    <section id="section-active-monitoring" class="tab-content hidden">
+      <div class="flex justify-between items-center mb-6">
+        <div>
+          <h2 class="text-2xl font-bold text-gradient">Realtime Monitoring &amp; Live Score</h2>
+          <p class="text-xs text-gray-400 mt-1" id="monitor-room-info">Room: -</p>
+        </div>
+        <button id="btn-finish-quiz" class="btn btn-danger text-sm">Akhiri Kuis</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+        <div class="glass-panel p-4 text-center">
+          <div class="text-xs text-gray-400 font-semibold uppercase">Total Peserta</div>
+          <div class="text-3xl font-bold mt-2 text-indigo-400" id="monitor-stat-total">0</div>
+        </div>
+        <div class="glass-panel p-4 text-center">
+          <div class="text-xs text-gray-400 font-semibold uppercase">Sudah Submit</div>
+          <div class="text-3xl font-bold mt-2 text-emerald-400" id="monitor-stat-submitted">0</div>
+        </div>
+        <div class="glass-panel p-4 text-center">
+          <div class="text-xs text-gray-400 font-semibold uppercase">Lulus (Pass)</div>
+          <div class="text-3xl font-bold mt-2 text-green-400" id="monitor-stat-pass">0</div>
+        </div>
+        <div class="glass-panel p-4 text-center">
+          <div class="text-xs text-gray-400 font-semibold uppercase">Gagal (Fail)</div>
+          <div class="text-3xl font-bold mt-2 text-red-400" id="monitor-stat-fail">0</div>
+        </div>
+      </div>
+
+      <div class="glass-panel p-6">
+        <h3 class="text-lg font-bold mb-4">Detail Hasil Peserta</h3>
+        <div class="overflow-x-auto">
+          <table class="custom-table w-full">
+            <thead>
+              <tr>
+                <th>Nama Peserta</th>
+                <th>Nilai (Score)</th>
+                <th>Status Kelulusan</th>
+                <th>Waktu Join</th>
+                <th>Waktu Submit</th>
+              </tr>
+            </thead>
+            <tbody id="monitor-table-tbody">
+              <tr>
+                <td colspan="5" class="text-center text-gray-500 py-4">Kuis belum berjalan atau belum ada peserta submit.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. QUIZ HISTORY & REPORTS SECTION -->
+    <section id="section-quiz-history" class="tab-content hidden">
+      <h2 class="text-2xl font-bold text-gradient mb-6">Riwayat Kuis &amp; Laporan</h2>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- History List -->
+        <div class="glass-panel p-6 lg:col-span-1 flex flex-col">
+          <h3 class="text-lg font-bold mb-4">Daftar Room Kuis</h3>
+          <div class="flex flex-col gap-2 max-h-96 overflow-y-auto pr-2" id="history-rooms-list">
+            <!-- History rooms rendered here -->
+            <p class="text-gray-500 text-sm">Memuat riwayat...</p>
+          </div>
+        </div>
+
+        <!-- Selected History Summary & Report -->
+        <div class="glass-panel p-6 lg:col-span-2 flex flex-col">
+          <div class="flex justify-between items-center mb-6">
+            <h3 class="text-lg font-bold" id="history-summary-title">Pilih Kuis Dari Riwayat</h3>
+            <button id="btn-download-hrd-pdf" class="btn btn-primary text-sm" disabled>Download PDF Report</button>
+          </div>
+
+          <!-- Printable Area (Assessment Report for HRD) -->
+          <div id="hrd-report-print-container" class="bg-white p-8 text-gray-800 text-sm hidden" style="font-family: Arial, sans-serif; min-height: 297mm; box-sizing: border-box; width: 100%;">
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-6 pb-4" style="border-bottom: 2px solid #0056b3; display: flex; justify-content: space-between; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 16px;">
+                <!-- Logo SVG Clover -->
+                <svg width="56" height="56" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="50" cy="34" r="16" fill="#00aeef" style="mix-blend-mode: multiply;" />
+                  <circle cx="50" cy="66" r="16" fill="#f9a01b" style="mix-blend-mode: multiply;" />
+                  <circle cx="34" cy="50" r="16" fill="#e5007d" style="mix-blend-mode: multiply;" />
+                  <circle cx="68" cy="50" r="16" fill="#8cc63f" style="mix-blend-mode: multiply;" />
+                  <circle cx="50" cy="50" r="8" fill="#ffffff" />
+                </svg>
+                <div style="text-align: left;">
+                  <div style="font-size: 26px; font-weight: 800; color: #283e94; line-height: 1; font-family: Arial, sans-serif; letter-spacing: -0.5px;">Power Pro</div>
+                  <div style="font-size: 18px; color: #6473b6; line-height: 1; font-family: Arial, sans-serif; margin-top: 4px; font-weight: normal;">Hotel System</div>
+                </div>
+              </div>
+              <div style="text-align: right; font-family: Arial, sans-serif;">
+                <div style="font-weight: 800; font-size: 13px; color: #000000; line-height: 1.3;">P.T. Infotek Jaya Makmur</div>
+                <div style="font-size: 10px; color: #000000; line-height: 1.3;">Jl. Gading Kirana Utara, Blok F10/No. 20-21</div>
+                <div style="font-size: 10px; color: #000000; line-height: 1.3;">Kelapa Gading Barat, Kelapa Gading</div>
+                <div style="font-size: 10px; color: #000000; line-height: 1.3;">Jakarta Utara - 14240</div>
+                <div style="font-size: 10px; color: #000000; line-height: 1.3;">Ph. 021 450 7017</div>
+                <div style="font-size: 10px; color: #000000; line-height: 1.3;">NPWP : 01.882.371.6-043-000</div>
+              </div>
+            </div>
+
+            <div style="text-align: center; margin-bottom: 24px;">
+              <h2 style="font-size: 18px; font-weight: 800; color: #111827; margin: 0; text-transform: uppercase; letter-spacing: 0.05em;">IMPLEMENTATION ASSESSMENT REPORT</h2>
+              <p style="font-size: 11px; color: #4b5563; margin: 4px 0 0 0;">HRD &amp; Trainer Quiz Evidence Report</p>
+            </div>
+
+            <!-- Meta Info Grid in Header Style -->
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px;">
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Day & Date</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-date-created">-</div>
+              </div>
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Time (Durasi)</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-time-duration">-</div>
+              </div>
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Initiator (Host)</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-initiator">-</div>
+              </div>
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Location (Room)</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-room-code">-</div>
+              </div>
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Meeting / Quiz Type</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;">Assessment Evaluation</div>
+              </div>
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Customer / Audience</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;">Internal Training / HRD</div>
+              </div>
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px; grid-column: span 2;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Project / Quiz Name</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-quiz-name">-</div>
+              </div>
+            </div>
+
+            <div style="border-top: 1.5px solid #4b5563; border-bottom: 1.5px solid #4b5563; py: 16px; margin-bottom: 24px; padding: 12px 0;">
+              <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 1.5px solid #4b5563;">
+                    <th style="padding-bottom: 8px; font-weight: bold; color: #111827;">No</th>
+                    <th style="padding-bottom: 8px; font-weight: bold; color: #111827;">Nama Peserta</th>
+                    <th style="padding-bottom: 8px; font-weight: bold; color: #111827;">Nilai</th>
+                    <th style="padding-bottom: 8px; font-weight: bold; color: #111827; text-align: right;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="report-participants-tbody">
+                  <!-- Assessment list will populate here -->
+                </tbody>
+              </table>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed #cbd5e1; padding-top: 16px;">
+              <div>
+                <span style="font-size: 9px; font-weight: 700; color: #4b5563; text-transform: uppercase;">Average Score</span>
+                <div style="font-size: 20px; font-weight: 800; color: #0056b3;" id="report-average-score">-</div>
+              </div>
+              <div style="display: flex; gap: 24px;">
+                <div style="text-align: center;">
+                  <span style="font-size: 9px; font-weight: 700; color: #4b5563; text-transform: uppercase;">Passing Grade</span>
+                  <div style="font-size: 14px; font-weight: 800; color: #111827;" id="report-passing-grade">-</div>
+                </div>
+                <div style="text-align: center;">
+                  <span style="font-size: 9px; font-weight: 700; color: #4b5563; text-transform: uppercase;">Pass</span>
+                  <div style="font-size: 14px; font-weight: 800; color: #16a34a;" id="report-pass-count">-</div>
+                </div>
+                <div style="text-align: center;">
+                  <span style="font-size: 9px; font-weight: 700; color: #4b5563; text-transform: uppercase;">Fail</span>
+                  <div style="font-size: 14px; font-weight: 800; color: #dc2626;" id="report-fail-count">-</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="history-placeholder-msg" class="flex-1 flex items-center justify-center border border-dashed border-gray-800 rounded-xl py-24 text-center">
+            <span class="text-gray-500 text-sm">Pilih salah satu kuis yang sudah selesai pada kolom sebelah kiri untuk memuat laporan hasil penilaian secara komprehensif.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ADD / EDIT QUESTION MODAL -->
+  <div id="question-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-filter backdrop-blur-md hidden flex items-center justify-center z-50">
+    <div class="w-full max-w-lg glass-panel p-6 m-4" style="max-height: 90vh; overflow-y: auto;">
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-xl font-bold text-gradient" id="question-modal-title">Tambah Soal Baru</h2>
+        <button onclick="closeQuestionModal()" class="text-gray-400 hover:text-white">&times;</button>
+      </div>
+
+      <form id="form-question" class="flex flex-col gap-4">
+        <input type="hidden" id="edit-question-id">
+        <div>
+          <label class="text-xs text-gray-400 font-bold">PERTANYAAN</label>
+          <textarea id="question-text" class="input-field mt-1" rows="3" placeholder="Masukkan pertanyaan..." required></textarea>
+        </div>
+        
+        <!-- Options Container for MCQ -->
+        <div class="grid grid-cols-2 gap-4" id="options-container">
+          <div>
+            <label class="text-xs text-gray-400 font-bold">PILIHAN A</label>
+            <input type="text" id="option-a" class="input-field mt-1" placeholder="Pilihan A" required>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">PILIHAN B</label>
+            <input type="text" id="option-b" class="input-field mt-1" placeholder="Pilihan B" required>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">PILIHAN C</label>
+            <input type="text" id="option-c" class="input-field mt-1" placeholder="Pilihan C" required>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">PILIHAN D</label>
+            <input type="text" id="option-d" class="input-field mt-1" placeholder="Pilihan D" required>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs text-gray-400 font-bold">TIPE SOAL</label>
+            <select id="question-type" class="input-field mt-1" style="background-color: #0f172a;" onchange="toggleOptionFields()">
+              <option value="mcq" selected>Pilihan Ganda (MCQ)</option>
+              <option value="essay">Essay (Koreksi AI)</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold">KATEGORI</label>
+            <input type="text" id="question-category" class="input-field mt-1" placeholder="Contoh: K3, HRD, dll." required>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4">
+          <div id="correct-option-mcq-container">
+            <label class="text-xs text-gray-400 font-bold">KUNCI JAWABAN (MCQ)</label>
+            <select id="correct-option" class="input-field mt-1" style="background-color: #0f172a;">
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+              <option value="D">D</option>
+            </select>
+          </div>
+          <div id="correct-option-essay-container" class="hidden">
+            <label class="text-xs text-gray-400 font-bold">KUNCI JAWABAN (ESSAY)</label>
+            <textarea id="correct-option-essay" class="input-field mt-1" rows="2" placeholder="Masukkan jawaban essay referensi yang benar..."></textarea>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-full mt-2">Simpan Soal</button>
+      </form>
+    </div>
+  </div>
+
+  <style>
+    /* Styling button transitions */
+    .nav-btn {
+      color: var(--text-muted);
+      border: 1px solid transparent;
+    }
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+    }
+    .nav-btn.active {
+      background: rgba(99, 102, 241, 0.15);
+      border-color: rgba(99, 102, 241, 0.3);
+      color: #818cf8;
+    }
+  </style>
+
+  <!-- Scripts -->
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/question-bank.js"></script>
+  <script src="js/realtime.js"></script>
+  <script src="js/host.js"></script>
+</body>
+</html>
