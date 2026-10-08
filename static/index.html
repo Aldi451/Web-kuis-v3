@@ -2,73 +2,116 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="color-scheme" content="dark">
   <title>Portal Quiz - Realtime Assessment</title>
+  <!-- Font dimuat tanpa memblokir tampilan (jika offline otomatis memakai font sistem) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
   <!-- Tailwind CSS CDN for utility spacing/layout (optional fallback) -->
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/tailwind.local.css">
+  <!-- CDN penuh dimuat TANPA memblokir tampilan: jaring pengaman jika ada class Tailwind baru yang belum di-build ke css/tailwind.local.css -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="index.css">
 </head>
-<body class="flex items-center justify-center p-4 min-h-screen">
+<body class="landing-body">
 
-  <div class="w-full max-w-md glass-panel p-8 text-center pulse-element">
+  <main class="landing-card glass-panel">
     <h1 class="text-3xl font-extrabold mb-2 text-gradient">QUIZ PLATFORM</h1>
     <p class="text-muted mb-8 text-sm">Real-time assessment, grading, and reporting system</p>
 
-    <!-- CLIENT JOIN FORM -->
-    <div id="join-form-section">
-      <h3 class="text-lg font-semibold mb-4 text-left">Gabung Sebagai Peserta</h3>
-      <div class="flex flex-col gap-4 text-left">
-        <div>
-          <label class="text-xs text-gray-400 font-bold">KODE RUANG (ROOM CODE)</label>
-          <input type="text" id="join-room-code" class="input-field mt-1 uppercase" placeholder="ABC123" maxlength="10">
-        </div>
-        <div>
-          <label class="text-xs text-gray-400 font-bold">NAMA LENGKAP</label>
-          <input type="text" id="join-name" class="input-field mt-1" placeholder="Masukkan nama Anda...">
-        </div>
-        <div>
-          <label class="text-xs text-gray-400 font-bold">DEPARTEMEN</label>
-          <input type="text" id="join-department" class="input-field mt-1" placeholder="Contoh: HRD, Front Office...">
-        </div>
-        <button id="btn-join-room" class="btn btn-primary w-full mt-2">Gabung Kuis</button>
+    <!-- LANJUTKAN SESI (muncul jika halaman kuis sebelumnya tertutup / ter-refresh di HP) -->
+    <div id="resume-card" class="resume-card hidden" role="status">
+      <div class="text-xs font-bold text-indigo-300 mb-1 uppercase tracking-wider">Sesi sebelumnya</div>
+      <p class="text-sm text-gray-200 mb-3">
+        Kamu masih tergabung di room <strong id="resume-room" class="tracking-widest"></strong>
+        sebagai <strong id="resume-name"></strong>.
+      </p>
+      <div class="flex gap-2">
+        <button type="button" id="btn-resume" class="btn btn-primary text-sm flex-1">Lanjutkan</button>
+        <button type="button" id="btn-resume-clear" class="btn btn-secondary text-sm">Keluar</button>
       </div>
     </div>
 
+    <!-- CLIENT JOIN FORM -->
+    <form id="form-join" class="text-left" autocomplete="off" novalidate>
+      <h2 class="text-lg font-semibold mb-4 text-left">Gabung Sebagai Peserta</h2>
+      <p id="join-room-hint" class="form-hint mb-4 hidden">Kode room terisi otomatis dari QR code. Cukup isi nama dan departemen.</p>
+      <div class="flex flex-col gap-4 text-left">
+        <div>
+          <label class="field-label" for="join-room-code">KODE RUANG (ROOM CODE)</label>
+          <input type="text" id="join-room-code" class="input-field code-input mt-1" placeholder="Contoh: ABCD" maxlength="10"
+                 autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next">
+        </div>
+        <div>
+          <label class="field-label" for="join-name">NAMA LENGKAP</label>
+          <input type="text" id="join-name" class="input-field mt-1" placeholder="Masukkan nama Anda..." maxlength="60"
+                 autocomplete="name" autocapitalize="words" spellcheck="false" enterkeyhint="next">
+        </div>
+        <div>
+          <label class="field-label" for="join-department">DEPARTEMEN</label>
+          <input type="text" id="join-department" class="input-field mt-1" placeholder="Contoh: HRD, Front Office..." maxlength="60"
+                 list="department-list" autocomplete="off" autocapitalize="words" enterkeyhint="go">
+          <datalist id="department-list">
+            <option value="Front Office"></option>
+            <option value="Housekeeping"></option>
+            <option value="Food &amp; Beverage"></option>
+            <option value="Sales &amp; Marketing"></option>
+            <option value="HRD"></option>
+            <option value="Accounting"></option>
+            <option value="Engineering"></option>
+            <option value="IT"></option>
+          </datalist>
+        </div>
+        <p id="join-error" class="form-error hidden" role="alert"></p>
+        <button type="submit" id="btn-join-room" class="btn btn-primary w-full mt-2">Gabung Kuis</button>
+      </div>
+    </form>
+
     <!-- DIVIDER -->
-    <div class="relative my-8">
-      <hr style="border-color: var(--border-glass);">
-      <span class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 px-3 bg-gray-900 text-xs text-gray-400">ATAU</span>
+    <div class="divider-label">
+      <hr>
+      <span>ATAU</span>
     </div>
 
     <!-- HOST/ADMIN LOGIN BUTTON -->
-    <button id="btn-show-login" class="btn btn-secondary w-full">Masuk Sebagai Host / Admin</button>
+    <button type="button" id="btn-show-login" class="btn btn-secondary w-full">Masuk Sebagai Host / Admin</button>
 
     <div class="mt-8 text-xs text-gray-500">
       &copy; 2026 Assessment System. All rights reserved.
     </div>
-  </div>
+  </main>
 
-  <!-- LOGIN & REGISTER MODAL -->
-  <div id="login-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-filter backdrop-blur-md hidden flex items-center justify-center z-50">
-    <div class="w-full max-w-sm glass-panel p-6 m-4" style="max-height: 90vh; overflow-y: auto;">
-      
+  <!-- LOGIN & REGISTER MODAL (di HP muncul sebagai lembar dari bawah) -->
+  <div id="login-modal" class="modal-backdrop hidden">
+    <div class="modal-sheet glass-panel p-6" style="max-width: 24rem;" role="dialog" aria-modal="true">
+
       <!-- Login Section -->
       <div id="login-section">
         <div class="flex justify-between items-center mb-6">
           <h2 class="text-xl font-bold text-gradient">Login Portal</h2>
-          <button id="btn-close-login" class="text-gray-400 hover:text-white" style="font-size: 1.5rem; line-height: 1;">&times;</button>
+          <button type="button" id="btn-close-login" class="text-gray-400 hover:text-white" aria-label="Tutup"
+                  style="font-size: 1.75rem; line-height: 1; min-width: 44px; min-height: 44px;">&times;</button>
         </div>
-        
-        <form id="form-login" class="flex flex-col gap-4">
+
+        <form id="form-login" class="flex flex-col gap-4" autocomplete="on">
           <div>
-            <label class="text-xs text-gray-400 font-bold">USERNAME</label>
-            <input type="text" id="login-username" class="input-field mt-1" placeholder="Username" required>
+            <label class="field-label" for="login-username">USERNAME</label>
+            <input type="text" id="login-username" name="username" class="input-field mt-1" placeholder="Username" required
+                   autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
           </div>
           <div>
-            <label class="text-xs text-gray-400 font-bold">PASSWORD</label>
-            <input type="password" id="login-password" class="input-field mt-1" placeholder="••••••••" required>
+            <label class="field-label" for="login-password">PASSWORD</label>
+            <div class="input-wrap mt-1">
+              <input type="password" id="login-password" name="password" class="input-field" placeholder="••••••••" required
+                     autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go">
+              <button type="button" class="input-toggle" data-toggle-password="login-password" aria-label="Tampilkan password">LIHAT</button>
+            </div>
           </div>
-          <button type="submit" class="btn btn-primary w-full mt-2">Masuk</button>
+          <p id="login-error" class="form-error hidden" role="alert"></p>
+          <button type="submit" id="btn-login-submit" class="btn btn-primary w-full mt-2">Masuk</button>
         </form>
         <p class="text-xs text-center text-gray-400 mt-4">
           Belum punya akun? <a href="#" id="link-show-register" class="text-indigo-400 font-bold hover:underline">Daftar Akun Baru</a>
@@ -79,26 +122,33 @@
       <div id="register-section" class="hidden">
         <div class="flex justify-between items-center mb-6">
           <h2 class="text-xl font-bold text-gradient">Daftar Host / Admin</h2>
-          <button id="btn-close-register" class="text-gray-400 hover:text-white" style="font-size: 1.5rem; line-height: 1;">&times;</button>
+          <button type="button" id="btn-close-register" class="text-gray-400 hover:text-white" aria-label="Tutup"
+                  style="font-size: 1.75rem; line-height: 1; min-width: 44px; min-height: 44px;">&times;</button>
         </div>
-        
-        <form id="form-register" class="flex flex-col gap-4">
+
+        <form id="form-register" class="flex flex-col gap-4" autocomplete="on">
           <div>
-            <label class="text-xs text-gray-400 font-bold">USERNAME</label>
-            <input type="text" id="register-username" class="input-field mt-1" placeholder="Username baru" required>
+            <label class="field-label" for="register-username">USERNAME</label>
+            <input type="text" id="register-username" name="new-username" class="input-field mt-1" placeholder="Username baru" required maxlength="50"
+                   autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
           </div>
           <div>
-            <label class="text-xs text-gray-400 font-bold">PASSWORD</label>
-            <input type="password" id="register-password" class="input-field mt-1" placeholder="••••••••" required>
+            <label class="field-label" for="register-password">PASSWORD</label>
+            <div class="input-wrap mt-1">
+              <input type="password" id="register-password" name="new-password" class="input-field" placeholder="••••••••" required
+                     autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
+              <button type="button" class="input-toggle" data-toggle-password="register-password" aria-label="Tampilkan password">LIHAT</button>
+            </div>
           </div>
           <div>
-            <label class="text-xs text-gray-400 font-bold">DAFTAR SEBAGAI</label>
-            <select id="register-role" class="input-field mt-1" style="background-color: #0f172a;">
+            <label class="field-label" for="register-role">DAFTAR SEBAGAI</label>
+            <select id="register-role" class="input-field mt-1">
               <option value="Host" selected>Host (Pembuat Kuis)</option>
               <option value="Admin">Admin (Manajemen User)</option>
             </select>
           </div>
-          <button type="submit" class="btn btn-primary w-full mt-2">Daftar Sekarang</button>
+          <p id="register-error" class="form-error hidden" role="alert"></p>
+          <button type="submit" id="btn-register-submit" class="btn btn-primary w-full mt-2">Daftar Sekarang</button>
         </form>
         <p class="text-xs text-center text-gray-400 mt-4">
           Sudah punya akun? <a href="#" id="link-show-login" class="text-indigo-400 font-bold hover:underline">Log In</a>
@@ -109,113 +159,9 @@
   </div>
 
   <!-- Scripts -->
+  <script src="js/common.js"></script>
   <script src="js/api.js"></script>
   <script src="js/auth.js"></script>
-  <script>
-    const loginModal = document.getElementById('login-modal');
-    const loginSection = document.getElementById('login-section');
-    const registerSection = document.getElementById('register-section');
-
-    // Show/Hide Modal triggers
-    document.getElementById('btn-show-login').addEventListener('click', () => {
-      loginModal.classList.remove('hidden');
-      showLoginView();
-    });
-    
-    document.getElementById('btn-close-login').addEventListener('click', () => {
-      loginModal.classList.add('hidden');
-    });
-    document.getElementById('btn-close-register').addEventListener('click', () => {
-      loginModal.classList.add('hidden');
-    });
-
-    // View switcher toggles
-    document.getElementById('link-show-register').addEventListener('click', (e) => {
-      e.preventDefault();
-      showRegisterView();
-    });
-    document.getElementById('link-show-login').addEventListener('click', (e) => {
-      e.preventDefault();
-      showLoginView();
-    });
-
-    function showLoginView() {
-      loginSection.classList.remove('hidden');
-      registerSection.classList.add('hidden');
-    }
-    function showRegisterView() {
-      loginSection.classList.add('hidden');
-      registerSection.classList.remove('hidden');
-    }
-
-    // Handle Login
-    document.getElementById('form-login').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const userVal = document.getElementById('login-username').value.trim();
-      const passVal = document.getElementById('login-password').value;
-
-      try {
-        const user = await window.Auth.login(userVal, passVal);
-        if (user.role === 'Admin') {
-          window.location.href = 'admin.html';
-        } else if (user.role === 'Host') {
-          window.location.href = 'host.html';
-        }
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-
-    // Handle Registration (Daftar Akun Baru)
-    document.getElementById('form-register').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('register-username').value.trim();
-      const password = document.getElementById('register-password').value;
-      const role = document.getElementById('register-role').value;
-
-      try {
-        await window.API.register(username, password, role);
-
-        alert("Akun berhasil didaftarkan! Silakan log in.");
-        showLoginView();
-        document.getElementById('login-username').value = username;
-        document.getElementById('login-password').value = password;
-      } catch (err) {
-        alert("Pendaftaran gagal: " + err.message);
-      }
-    });
-
-    // Handle Client Join Room
-    document.getElementById('btn-join-room').addEventListener('click', async () => {
-      const roomCode = document.getElementById('join-room-code').value.trim().toUpperCase();
-      const name = document.getElementById('join-name').value.trim();
-      const department = document.getElementById('join-department').value.trim();
-
-      if (!roomCode || !name || !department) {
-        alert('Mohon masukkan Kode Room, Nama, dan Departemen Anda!');
-        return;
-      }
-
-      // Check if room exists and is scheduled or waiting
-      try {
-        const room = await window.API.getRoom(roomCode);
-
-        if (room.status === 'Finished') {
-          alert('Kuis di room ini sudah selesai!');
-          return;
-        }
-
-        // Save selection to localStorage and redirect to client.html
-        localStorage.setItem('client_room_code', roomCode);
-        localStorage.setItem('client_room_id', room.id);
-        localStorage.setItem('client_participant_name', name);
-        localStorage.setItem('client_department', department);
-        
-        window.location.href = 'client.html';
-      } catch (err) {
-        alert('Terjadi kesalahan saat mencari Room: ' + err.message);
-      }
-    });
-  </script>
+  <script src="js/landing.js"></script>
 </body>
 </html>

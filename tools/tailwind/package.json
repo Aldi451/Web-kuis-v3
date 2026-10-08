@@ -1,0 +1,13 @@
+{
+  "name": "quiz-platform-css",
+  "private": true,
+  "description": "Membangun static/css/tailwind.local.css: hanya class Tailwind yang dipakai di HTML/JS, supaya tampilan tetap benar di HP tanpa internet (CDN tidak terjangkau).",
+  "scripts": {
+    "build": "tailwindcss build -i input.css -o ../../static/css/tailwind.local.css --minify"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "2.2.19"
+  }
+}

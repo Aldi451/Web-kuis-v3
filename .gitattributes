@@ -1,0 +1,9 @@
+# File batch Windows WAJIB berakhiran CRLF. File .bat yang tersimpan dengan LF saja
+# (misalnya dibuat oleh tool di Linux) bisa gagal diparse oleh cmd.exe.
+# Dengan aturan ini Git selalu mengirim CRLF saat checkout / unduh ZIP.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Jangan diubah-ubah line ending-nya
+*.db binary
+*.pdf binary

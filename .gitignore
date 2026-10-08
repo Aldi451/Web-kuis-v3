@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environment (dibuat otomatis oleh run_server.bat)
+.venv/
+venv/
+.deps-ok
+
+# Tooling build CSS (tools/tailwind)
+node_modules/
+
+# Konfigurasi lokal & rahasia
+.env
+
+# File samping SQLite
+*.db-journal
+*.db-wal
+*.db-shm
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

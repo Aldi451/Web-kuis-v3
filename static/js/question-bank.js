@@ -1,74 +1,100 @@
-// js/question-bank.js
+// js/question-bank.js - bank soal: daftar, filter kategori & level, tambah/ubah/hapus, dan pemilihan soal untuk kuis
 
 let allQuestions = [];
 let categories = new Set();
+// Soal yang dipilih untuk kuis. Disimpan sebagai Set (bukan hanya checkbox di layar) supaya pilihan
+// TIDAK hilang saat filter kategori diganti - jadi satu kuis bisa berisi soal dari beberapa kategori.
+const selectedQuestionIds = new Set();
 
 async function loadQuestionBank() {
   try {
     const questions = await window.API.getQuestions();
     allQuestions = questions;
-  categories.clear();
-  questions.forEach(q => {
-    if (q.category) categories.add(q.category);
-  });
+    categories.clear();
+    const existing = new Set(questions.map((q) => q.id));
+    Array.from(selectedQuestionIds).forEach((id) => { if (!existing.has(id)) selectedQuestionIds.delete(id); });
+    questions.forEach((q) => {
+      if (q.category) categories.add(q.category);
+    });
 
-  updateCategoryDropdowns();
-  renderQuestionBank();
-  renderQuestionListForQuiz();
-} catch (error) {
-    console.error("Gagal memuat soal:", error);
+    updateCategoryDropdowns();
+    renderQuestionBank();
+    renderQuestionListForQuiz();
+    renderLevelSummary();
+  } catch (error) {
+    console.error('Gagal memuat soal:', error);
+    const tbody = document.getElementById('question-bank-tbody');
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-red-500 py-4">Gagal memuat soal: ${escapeHTML(error.message)}</td></tr>`;
+    }
   }
+}
+
+// Filter gabungan kategori + level ("All" = tidak difilter)
+function matchesFilters(question, category, level) {
+  return (category === 'All' || question.category === category) &&
+    (level === 'All' || window.Levels.normalize(question.level) === level);
+}
+
+function selectValue(id) {
+  const node = document.getElementById(id);
+  return node ? node.value : 'All';
+}
+
+// Rekap jumlah soal per level di seluruh bank soal
+function renderLevelSummary() {
+  const box = document.getElementById('question-level-summary');
+  if (!box) return;
+  const counts = { easy: 0, normal: 0, hard: 0 };
+  allQuestions.forEach((q) => { counts[window.Levels.normalize(q.level)] += 1; });
+  box.innerHTML = window.Levels.order.map((level) => (
+    `<div class="level-stat">${window.Levels.badge(level)}<strong>${counts[level]}</strong></div>`
+  )).join('') + `<span class="level-total">Total ${allQuestions.length} soal</span>`;
 }
 
 function updateCategoryDropdowns() {
   const filterSelect = document.getElementById('question-category-filter');
   const quizSelect = document.getElementById('quiz-category-select');
-  
-  if (filterSelect) {
-    const currentFilterVal = filterSelect.value;
-    filterSelect.innerHTML = '<option value="All">Semua Kategori</option>';
-    categories.forEach(cat => {
-      filterSelect.innerHTML += `<option value="${escapeHTML(cat)}">${escapeHTML(cat)}</option>`;
-    });
-    filterSelect.value = currentFilterVal;
-  }
 
-  if (quizSelect) {
-    const currentQuizVal = quizSelect.value;
-    quizSelect.innerHTML = '<option value="All">Semua Kategori</option>';
-    categories.forEach(cat => {
-      quizSelect.innerHTML += `<option value="${escapeHTML(cat)}">${escapeHTML(cat)}</option>`;
-    });
-    quizSelect.value = currentQuizVal;
-  }
+  const optionsHtml = '<option value="All">Semua Kategori</option>' +
+    Array.from(categories).map((cat) => `<option value="${escapeHTML(cat)}">${escapeHTML(cat)}</option>`).join('');
+
+  [filterSelect, quizSelect].forEach((select) => {
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = optionsHtml;
+    select.value = categories.has(current) ? current : 'All';
+  });
 }
 
 function renderQuestionBank() {
   const tbody = document.getElementById('question-bank-tbody');
   if (!tbody) return;
 
-  const filterVal = document.getElementById('question-category-filter').value;
-  const filtered = filterVal === 'All' ? allQuestions : allQuestions.filter(q => q.category === filterVal);
+  const filtered = allQuestions.filter((q) => matchesFilters(q, selectValue('question-category-filter'), selectValue('question-level-filter')));
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-4">Tidak ada soal ditemukan.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-4">Tidak ada soal ditemukan.</td></tr>';
     return;
   }
 
   tbody.innerHTML = '';
-  filtered.forEach(q => {
+  filtered.forEach((q) => {
     const qType = q.question_type || 'mcq';
     const row = document.createElement('tr');
     row.innerHTML = `
-      <td class="font-medium max-w-xs truncate">${escapeHTML(q.question_text)}</td>
-      <td>
+      <td data-label="Pertanyaan" class="font-medium"><div class="cell-clamp">${escapeHTML(q.question_text)}</div></td>
+      <td data-label="Kategori">
         <span class="badge badge-waiting">${escapeHTML(q.category || 'Umum')}</span>
-        <span class="badge ${qType === 'essay' ? 'badge-pass' : 'badge-waiting'}" style="text-transform: uppercase;">${qType}</span>
+        <span class="badge ${qType === 'essay' ? 'badge-pass' : 'badge-waiting'}" style="text-transform: uppercase;">${escapeHTML(qType)}</span>
       </td>
-      <td class="font-bold text-indigo-400 max-w-xs truncate">${escapeHTML(q.correct_option)}</td>
-      <td class="text-right flex justify-end gap-2">
-        <button onclick="editQuestion(${q.id})" class="btn btn-secondary text-xs py-1 px-3">Edit</button>
-        <button onclick="deleteQuestion(${q.id})" class="btn btn-danger text-xs py-1 px-3">Hapus</button>
+      <td data-label="Level">${window.Levels.badge(q.level)}</td>
+      <td data-label="Kunci Jawaban" class="font-bold text-indigo-400"><div class="cell-clamp">${escapeHTML(q.correct_option)}</div></td>
+      <td class="text-right cell-actions">
+        <div class="row-actions">
+          <button type="button" onclick="editQuestion(${Number(q.id)})" class="btn btn-secondary text-xs py-1 px-3" style="min-height: 38px;">Edit</button>
+          <button type="button" onclick="deleteQuestion(${Number(q.id)})" class="btn btn-danger text-xs py-1 px-3" style="min-height: 38px;">Hapus</button>
+        </div>
       </td>
     `;
     tbody.appendChild(row);
@@ -79,38 +105,67 @@ function renderQuestionListForQuiz() {
   const container = document.getElementById('quiz-question-list-container');
   if (!container) return;
 
-  const categoryFilterVal = document.getElementById('quiz-category-select').value;
-  const filtered = categoryFilterVal === 'All' ? allQuestions : allQuestions.filter(q => q.category === categoryFilterVal);
+  const filtered = allQuestions.filter((q) => matchesFilters(q, selectValue('quiz-category-select'), selectValue('quiz-level-select')));
 
   if (filtered.length === 0) {
-    container.innerHTML = '<p class="text-gray-500 text-sm">Tidak ada soal tersedia untuk kategori ini.</p>';
+    container.innerHTML = '<p class="text-gray-500 text-sm">Tidak ada soal tersedia untuk kategori/level ini.</p>';
+    updateSelectedCount();
     return;
   }
 
   container.innerHTML = '';
-  filtered.forEach(q => {
+  filtered.forEach((q) => {
     const div = document.createElement('div');
     div.className = 'flex items-start gap-3 p-3 border-b border-gray-800 hover:bg-gray-900 rounded-lg mb-2';
     div.innerHTML = `
-      <input type="checkbox" name="quiz_questions" value="${q.id}" id="chk-q-${q.id}" onchange="updateSelectedCount()" class="mt-1">
-      <label for="chk-q-${q.id}" class="text-sm cursor-pointer flex-1">
+      <input type="checkbox" name="quiz_questions" value="${Number(q.id)}" id="chk-q-${Number(q.id)}" class="mt-1"
+             style="width: 22px; height: 22px; flex: 0 0 auto;" ${selectedQuestionIds.has(q.id) ? 'checked' : ''}>
+      <label for="chk-q-${Number(q.id)}" class="text-sm cursor-pointer flex-1" style="min-width: 0; overflow-wrap: anywhere;">
         <div class="font-medium text-gray-200">${escapeHTML(q.question_text)}</div>
         <div class="text-xs text-gray-400 mt-1">
           Kategori: <span class="text-indigo-400">${escapeHTML(q.category || 'Umum')}</span>
+          <span class="badge ${(q.question_type || 'mcq') === 'essay' ? 'badge-pass' : 'badge-waiting'}" style="text-transform: uppercase; margin-left: 4px;">${escapeHTML(q.question_type || 'mcq')}</span>
+          ${window.Levels.badge(q.level)}
         </div>
       </label>
     `;
+    div.querySelector('input').addEventListener('change', (event) => {
+      if (event.target.checked) selectedQuestionIds.add(q.id);
+      else selectedQuestionIds.delete(q.id);
+      updateSelectedCount();
+    });
     container.appendChild(div);
   });
   updateSelectedCount();
 }
 
 function updateSelectedCount() {
-  const checkboxes = document.querySelectorAll('input[name="quiz_questions"]:checked');
   const countSpan = document.getElementById('selected-questions-count');
   if (countSpan) {
-    countSpan.textContent = `${checkboxes.length} Terpilih`;
+    countSpan.textContent = `${selectedQuestionIds.size} Terpilih`;
   }
+  // Kartu "Pembagian Soal ke Peserta" (host.js) menghitung ulang soal tersedia per level
+  if (typeof window.onQuizSelectionChanged === 'function') window.onQuizSelectionChanged();
+}
+
+// ID soal terpilih, berurutan sesuai bank soal
+function getSelectedQuestionIds() {
+  return allQuestions.filter((q) => selectedQuestionIds.has(q.id)).map((q) => q.id);
+}
+
+// Objek soal yang terpilih (berurutan sesuai bank soal)
+function getSelectedQuestions() {
+  return allQuestions.filter((q) => selectedQuestionIds.has(q.id));
+}
+
+// "Pilih semua" / "Kosongkan" berlaku untuk soal yang sedang ditampilkan (sesuai filter kategori & level)
+function setAllQuestionsSelected(selected) {
+  const visible = allQuestions.filter((q) => matchesFilters(q, selectValue('quiz-category-select'), selectValue('quiz-level-select')));
+  visible.forEach((q) => {
+    if (selected) selectedQuestionIds.add(q.id);
+    else selectedQuestionIds.delete(q.id);
+  });
+  renderQuestionListForQuiz();
 }
 
 function toggleOptionFields() {
@@ -128,7 +183,7 @@ function toggleOptionFields() {
     optionsContainer.classList.add('hidden');
     mcqContainer.classList.add('hidden');
     essayContainer.classList.remove('hidden');
-    
+
     // Set required false for options when essay
     optA.required = false;
     optB.required = false;
@@ -147,26 +202,34 @@ function toggleOptionFields() {
 }
 
 // Modal actions
+function showQuestionModal(title) {
+  document.getElementById('question-modal-title').textContent = title;
+  document.getElementById('question-modal').classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  // Di HP jangan langsung memunculkan keyboard; di desktop fokuskan kolom pertama
+  if (!window.UI.isMobile()) document.getElementById('question-text').focus();
+}
+
 function openQuestionModal() {
   document.getElementById('form-question').reset();
   document.getElementById('edit-question-id').value = '';
   document.getElementById('question-type').value = 'mcq';
   toggleOptionFields();
-  document.getElementById('question-modal-title').textContent = 'Tambah Soal Baru';
-  document.getElementById('question-modal').classList.remove('hidden');
+  showQuestionModal('Tambah Soal Baru');
 }
 
 function closeQuestionModal() {
   document.getElementById('question-modal').classList.add('hidden');
+  if (!document.querySelector('.ui-modal-backdrop')) document.body.classList.remove('modal-open');
 }
 
 async function editQuestion(id) {
-  const q = allQuestions.find(item => item.id === id);
+  const q = allQuestions.find((item) => item.id === id);
   if (!q) return;
 
   document.getElementById('edit-question-id').value = q.id;
   document.getElementById('question-text').value = q.question_text;
-  
+
   const qType = q.question_type || 'mcq';
   document.getElementById('question-type').value = qType;
   toggleOptionFields();
@@ -182,18 +245,26 @@ async function editQuestion(id) {
   }
 
   document.getElementById('question-category').value = q.category;
-  document.getElementById('question-modal-title').textContent = 'Edit Soal';
-  document.getElementById('question-modal').classList.remove('hidden');
+  document.getElementById('question-level').value = window.Levels.normalize(q.level);
+  showQuestionModal('Edit Soal');
 }
 
 async function deleteQuestion(id) {
-  if (confirm('Apakah Anda yakin ingin menghapus soal ini?')) {
-    try {
-      await window.API.deleteQuestion(id);
-      loadQuestionBank();
-    } catch (error) {
-      alert("Gagal menghapus soal: " + error.message);
-    }
+  const ok = await window.UI.confirm({
+    title: 'Hapus soal ini?',
+    message: 'Soal akan dihapus dari bank soal. Tindakan ini tidak bisa dibatalkan.',
+    confirmText: 'Hapus',
+    cancelText: 'Batal',
+    danger: true
+  });
+  if (!ok) return;
+
+  try {
+    await window.API.deleteQuestion(id);
+    selectedQuestionIds.delete(id);
+    loadQuestionBank();
+  } catch (error) {
+    window.UI.alert('Gagal menghapus soal: ' + error.message);
   }
 }
 
@@ -207,12 +278,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const question_text = document.getElementById('question-text').value.trim();
       const question_type = document.getElementById('question-type').value;
       const category = document.getElementById('question-category').value.trim();
+      const level = document.getElementById('question-level').value;
 
-      let option_a = "";
-      let option_b = "";
-      let option_c = "";
-      let option_d = "";
-      let correct_option = "";
+      let option_a = '';
+      let option_b = '';
+      let option_c = '';
+      let option_d = '';
+      let correct_option = '';
 
       if (question_type === 'essay') {
         correct_option = document.getElementById('correct-option-essay').value.trim();
@@ -224,8 +296,10 @@ document.addEventListener('DOMContentLoaded', () => {
         correct_option = document.getElementById('correct-option').value;
       }
 
-      const payload = { question_text, option_a, option_b, option_c, option_d, correct_option, category, question_type };
+      const payload = { question_text, option_a, option_b, option_c, option_d, correct_option, category, question_type, level };
 
+      const submitButton = form.querySelector('button[type="submit"]');
+      window.UI.setBusy(submitButton, true, 'Menyimpan...');
       try {
         if (id) {
           // Update
@@ -234,29 +308,43 @@ document.addEventListener('DOMContentLoaded', () => {
           // Insert
           await window.API.createQuestion(payload);
         }
+        // Modal ditutup HANYA jika berhasil; jika gagal, isian pengguna tetap ada agar tidak perlu mengetik ulang
+        closeQuestionModal();
+        window.UI.toast('Soal berhasil disimpan.', 'success');
+        loadQuestionBank();
       } catch (error) {
-        alert("Gagal menyimpan: " + error.message);
+        window.UI.alert('Gagal menyimpan: ' + error.message);
+      } finally {
+        window.UI.setBusy(submitButton, false);
       }
-
-      closeQuestionModal();
-      loadQuestionBank();
     });
   }
+
+  // Tombol Esc menutup modal soal (HP: tombol ✕)
+  document.addEventListener('keydown', (event) => {
+    const modal = document.getElementById('question-modal');
+    if (event.key === 'Escape' && modal && !modal.classList.contains('hidden') && !document.querySelector('.ui-modal-backdrop')) {
+      closeQuestionModal();
+    }
+  });
 
   const catFilter = document.getElementById('question-category-filter');
   if (catFilter) {
     catFilter.addEventListener('change', renderQuestionBank);
   }
 
+  const levelFilter = document.getElementById('question-level-filter');
+  if (levelFilter) {
+    levelFilter.addEventListener('change', renderQuestionBank);
+  }
+
   const quizCatSelect = document.getElementById('quiz-category-select');
   if (quizCatSelect) {
     quizCatSelect.addEventListener('change', renderQuestionListForQuiz);
   }
-});
 
-function escapeHTML(str) {
-  if (!str) return '';
-  return str.replace(/[&<>'"]/g, 
-    tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
-  );
-}
+  const quizLevelSelect = document.getElementById('quiz-level-select');
+  if (quizLevelSelect) {
+    quizLevelSelect.addEventListener('change', renderQuestionListForQuiz);
+  }
+});

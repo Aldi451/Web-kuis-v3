@@ -2,53 +2,57 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="color-scheme" content="dark">
   <title>Host Dashboard - Quiz Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
   <!-- Tailwind for grid/spacing utilities -->
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/tailwind.local.css">
+  <!-- CDN penuh dimuat TANPA memblokir tampilan: jaring pengaman jika ada class Tailwind baru yang belum di-build ke css/tailwind.local.css -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="index.css">
-  <!-- HTML2PDF CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <!-- QRCode CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- html2pdf TIDAK dimuat di sini: baru diunduh saat tombol PDF ditekan (js/pdf.js) -->
+  <!-- QR code disimpan lokal (vendor/) supaya tetap tampil walau komputer host tanpa internet -->
+  <script src="vendor/qrcode.min.js"></script>
 </head>
-<body class="min-h-screen flex flex-col md:flex-row">
+<body class="host-body">
 
-  <!-- SIDEBAR MENU -->
-  <div class="w-full md:w-64 bg-gray-950 border-r border-gray-800 p-6 flex flex-col justify-between">
-    <div>
-      <div class="mb-8 text-center md:text-left">
-        <h2 class="text-xl font-extrabold text-gradient">HOST PORTAL</h2>
-        <p class="text-xs text-gray-400 mt-1">Quiz Administrator Panel</p>
-      </div>
-
-      <nav class="flex flex-col gap-2">
-        <button onclick="switchTab('question-bank')" id="tab-question-bank" class="nav-btn active flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
-          📂 Bank Soal (Question Bank)
-        </button>
-        <button onclick="switchTab('create-quiz')" id="tab-create-quiz" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
-          📝 Buat Kuis (Create Quiz)
-        </button>
-        <button onclick="switchTab('waiting-room')" id="tab-waiting-room" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
-          ⌛ Waiting Room
-        </button>
-        <button onclick="switchTab('active-monitoring')" id="tab-active-monitoring" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
-          📊 Monitoring &amp; Live Score
-        </button>
-        <button onclick="switchTab('quiz-history')" id="tab-quiz-history" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
-          📜 Riwayat Kuis &amp; Laporan
-        </button>
-      </nav>
+  <!-- SIDEBAR MENU (di HP menjadi bilah atas dengan tab yang bisa digeser) -->
+  <aside class="host-sidebar">
+    <div class="host-brand">
+      <h2 class="text-xl font-extrabold text-gradient">HOST PORTAL</h2>
+      <p class="text-xs text-gray-400 mt-1">Quiz Administrator Panel</p>
     </div>
 
-    <div class="mt-8 pt-6 border-t border-gray-800 text-center md:text-left">
+    <nav class="host-nav" aria-label="Menu host">
+      <button onclick="switchTab('question-bank')" id="tab-question-bank" class="nav-btn active flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+        📂 Bank Soal (Question Bank)
+      </button>
+      <button onclick="switchTab('create-quiz')" id="tab-create-quiz" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+        📝 Buat Kuis (Create Quiz)
+      </button>
+      <button onclick="switchTab('waiting-room')" id="tab-waiting-room" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+        ⌛ Waiting Room
+      </button>
+      <button onclick="switchTab('active-monitoring')" id="tab-active-monitoring" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+        📊 Monitoring &amp; Live Score
+      </button>
+      <button onclick="switchTab('quiz-history')" id="tab-quiz-history" class="nav-btn flex items-center gap-3 w-full text-left p-3 rounded-lg text-sm font-semibold transition">
+        📜 Riwayat Kuis &amp; Laporan
+      </button>
+    </nav>
+
+    <div class="host-user">
       <div class="text-sm font-semibold text-gray-300 mb-4" id="host-welcome">Host User</div>
       <button onclick="window.Auth.logout()" class="btn btn-danger w-full text-sm">Logout</button>
     </div>
-  </div>
+  </aside>
 
   <!-- MAIN CONTENT AREA -->
-  <main class="flex-1 p-6 md:p-8 overflow-y-auto">
+  <main class="host-main">
 
     <!-- 1. QUESTION BANK SECTION -->
     <section id="section-question-bank" class="tab-content">
@@ -58,26 +62,37 @@
       </div>
 
       <div class="glass-panel p-6">
-        <div class="mb-4 flex items-center justify-between">
-          <span class="text-sm text-gray-400 font-medium">Filter Kategori:</span>
-          <select id="question-category-filter" class="input-field py-1 px-3 max-w-xs" style="background-color: #0f172a; width: 180px;">
-            <option value="All">Semua Kategori</option>
-          </select>
+        <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
+          <span class="text-sm text-gray-400 font-medium">Filter:</span>
+          <div class="filter-row">
+            <select id="question-category-filter" class="input-field py-1 px-3" aria-label="Filter kategori">
+              <option value="All">Semua Kategori</option>
+            </select>
+            <select id="question-level-filter" class="input-field py-1 px-3" aria-label="Filter level">
+              <option value="All">Semua Level</option>
+              <option value="easy">Easy</option>
+              <option value="normal">Normal</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
         </div>
+        <!-- Rekap jumlah soal per level di seluruh bank soal -->
+        <div id="question-level-summary" class="level-summary mb-4" aria-label="Jumlah soal per level"></div>
 
         <div class="overflow-x-auto">
-          <table class="custom-table w-full">
+          <table class="custom-table responsive-table w-full">
             <thead>
               <tr>
                 <th>Pertanyaan</th>
                 <th>Kategori</th>
+                <th>Level</th>
                 <th>Kunci Jawaban</th>
                 <th class="text-right">Aksi</th>
               </tr>
             </thead>
             <tbody id="question-bank-tbody">
               <tr>
-                <td colspan="4" class="text-center text-gray-500 py-4">Memuat data soal...</td>
+                <td colspan="5" class="text-center text-gray-500 py-4">Memuat data soal...</td>
               </tr>
             </tbody>
           </table>
@@ -111,19 +126,80 @@
               <option value="All">Semua Kategori</option>
             </select>
           </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold" for="quiz-level-select">LEVEL SOAL (FILTER DAFTAR)</label>
+            <select id="quiz-level-select" class="input-field mt-1" style="background-color: #0f172a;">
+              <option value="All">Semua Level</option>
+              <option value="easy">Easy</option>
+              <option value="normal">Normal</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
           <button id="btn-generate-quiz" class="btn btn-primary w-full mt-2">Generate Room &amp; Kuis</button>
         </div>
 
         <!-- Question Selection -->
         <div class="glass-panel p-6 lg:col-span-2">
-          <div class="flex justify-between items-center mb-4">
+          <div class="flex justify-between items-center mb-3 gap-3 flex-wrap">
             <h3 class="text-lg font-bold">Pilih Soal yang Dimasukkan</h3>
             <span class="text-xs text-gray-400 font-semibold" id="selected-questions-count">0 Terpilih</span>
+          </div>
+          <div class="flex gap-2 mb-4">
+            <button type="button" id="btn-select-all-questions" class="btn btn-secondary text-xs" style="min-height: 38px; padding: 6px 14px;">Pilih semua</button>
+            <button type="button" id="btn-clear-questions" class="btn btn-secondary text-xs" style="min-height: 38px; padding: 6px 14px;">Kosongkan</button>
           </div>
           <div class="overflow-y-auto max-h-96 pr-2" id="quiz-question-list-container">
             <!-- Questions to select from -->
             <p class="text-gray-500 text-sm">Memuat daftar soal...</p>
           </div>
+
+          <!-- Cara soal dibagikan: acak berbeda per peserta (berdasarkan level) atau sama untuk semua -->
+          <div id="question-set-card" class="set-card">
+            <h4 class="set-card-title">Pembagian Soal ke Peserta</h4>
+            <p class="form-hint">Soal yang dicentang di atas menjadi bahan soal. Tentukan cara membagikannya ke peserta yang scan QR.</p>
+
+            <div class="mode-options" role="radiogroup" aria-label="Cara pembagian soal">
+              <label class="mode-option">
+                <input type="radio" name="quiz-question-mode" id="mode-random" value="random" checked>
+                <span class="mode-body">
+                  <strong>Acak berbeda untuk tiap peserta</strong>
+                  <small>Setiap peserta mendapat kombinasi soal sendiri, diambil acak dari soal terpilih sesuai jumlah per level.</small>
+                </span>
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="quiz-question-mode" id="mode-fixed" value="fixed">
+                <span class="mode-body">
+                  <strong>Sama untuk semua peserta</strong>
+                  <small>Semua soal terpilih dikerjakan semua peserta dengan urutan yang sama.</small>
+                </span>
+              </label>
+            </div>
+
+            <div id="level-count-panel" class="level-count-panel">
+              <div class="field-label">JUMLAH SOAL PER PESERTA, PER LEVEL</div>
+              <div class="level-count-grid">
+                <div class="level-count">
+                  <label for="count-easy"><span class="badge badge-level badge-level-easy"><span class="level-meter" aria-hidden="true"><i class="on"></i><i></i><i></i></span>Easy</span></label>
+                  <input type="number" id="count-easy" class="input-field" min="0" value="0" inputmode="numeric">
+                  <span class="level-count-avail" id="avail-easy">dari 0 soal</span>
+                </div>
+                <div class="level-count">
+                  <label for="count-normal"><span class="badge badge-level badge-level-normal"><span class="level-meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span>Normal</span></label>
+                  <input type="number" id="count-normal" class="input-field" min="0" value="0" inputmode="numeric">
+                  <span class="level-count-avail" id="avail-normal">dari 0 soal</span>
+                </div>
+                <div class="level-count">
+                  <label for="count-hard"><span class="badge badge-level badge-level-hard"><span class="level-meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span>Hard</span></label>
+                  <input type="number" id="count-hard" class="input-field" min="0" value="0" inputmode="numeric">
+                  <span class="level-count-avail" id="avail-hard">dari 0 soal</span>
+                </div>
+              </div>
+            </div>
+            <p id="quiz-set-summary" class="set-summary" role="status"></p>
+          </div>
+
+          <!-- Tombol kedua di bawah daftar: di HP pengguna tidak perlu menggulir kembali ke atas -->
+          <button type="button" id="btn-generate-quiz-bottom" class="btn btn-primary w-full mt-4 lg:hidden">Generate Room &amp; Kuis</button>
         </div>
       </div>
     </section>
@@ -131,11 +207,15 @@
     <!-- 3. WAITING ROOM SECTION -->
     <section id="section-waiting-room" class="tab-content hidden">
       <h2 class="text-2xl font-bold text-gradient mb-6">Waiting Room</h2>
+
+      <!-- Muncul jika Host punya lebih dari satu room yang belum selesai -->
+      <div id="active-rooms-chooser" class="mb-6 hidden"></div>
       
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="glass-panel p-6 flex flex-col items-center justify-center text-center">
           <h3 class="text-lg font-bold mb-1" id="wait-quiz-title">Pilih/Buat Kuis Terlebih Dahulu</h3>
-          <p class="text-xs text-orange-400 font-semibold mb-6 uppercase" id="wait-quiz-status">STATUS : WAITING FOR START...</p>
+          <p class="text-xs text-orange-400 font-semibold mb-2 uppercase" id="wait-quiz-status">STATUS : WAITING FOR START...</p>
+          <p class="text-xs text-gray-400 mb-6" id="wait-quiz-config"></p>
 
           <!-- Room Code Card -->
           <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6 w-full max-w-xs">
@@ -144,11 +224,23 @@
           </div>
 
           <!-- QR Code Anchor -->
-          <div id="wait-qrcode" class="bg-white p-3 rounded-lg mb-6 flex items-center justify-center" style="width: 156px; height: 156px;">
-            <div class="text-gray-400 text-xs">QR Code</div>
+          <div id="wait-qrcode" class="qr-box mb-4">QR Code</div>
+
+          <!-- Link peserta: bisa disalin / dibagikan lewat WhatsApp dll. -->
+          <div id="join-box" class="join-box mb-6 hidden">
+            <label class="field-label mb-1 block" for="join-url-text">LINK GABUNG PESERTA</label>
+            <div id="join-url-text" class="join-url">-</div>
+            <select id="join-url-select" class="input-field mt-2 hidden" aria-label="Pilih alamat jaringan"></select>
+            <p id="join-url-warning" class="form-error mt-2 hidden"></p>
+            <div class="flex gap-2 mt-2">
+              <button type="button" id="btn-copy-join" class="btn btn-secondary text-sm flex-1">Salin Link</button>
+              <button type="button" id="btn-share-join" class="btn btn-secondary text-sm flex-1 hidden">Bagikan</button>
+            </div>
+            <p id="join-url-hint" class="form-hint mt-2"></p>
           </div>
 
           <button id="btn-start-quiz" class="btn btn-success w-full max-w-xs" disabled>START QUIZ</button>
+          <button type="button" id="btn-cancel-room" class="btn btn-secondary text-sm w-full max-w-xs mt-3 hidden">Batalkan room ini</button>
         </div>
 
         <div class="glass-panel p-6">
@@ -165,15 +257,16 @@
 
     <!-- 4. ACTIVE MONITORING & LIVE SCORE SECTION -->
     <section id="section-active-monitoring" class="tab-content hidden">
-      <div class="flex justify-between items-center mb-6">
+      <div class="flex justify-between items-center mb-6 gap-3 flex-wrap">
         <div>
           <h2 class="text-2xl font-bold text-gradient">Realtime Monitoring &amp; Live Score</h2>
           <p class="text-xs text-gray-400 mt-1" id="monitor-room-info">Room: -</p>
+          <p class="text-xs text-gray-400 mt-1">Sisa waktu kuis: <span id="monitor-countdown" class="host-countdown font-bold text-gray-200">--:--</span></p>
         </div>
         <button id="btn-finish-quiz" class="btn btn-danger text-sm">Akhiri Kuis</button>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-6">
         <div class="glass-panel p-4 text-center">
           <div class="text-xs text-gray-400 font-semibold uppercase">Total Peserta</div>
           <div class="text-3xl font-bold mt-2 text-indigo-400" id="monitor-stat-total">0</div>
@@ -195,7 +288,7 @@
       <div class="glass-panel p-6">
         <h3 class="text-lg font-bold mb-4">Detail Hasil Peserta</h3>
         <div class="overflow-x-auto">
-          <table class="custom-table w-full">
+          <table class="custom-table responsive-table w-full">
             <thead>
               <tr>
                 <th>Nama Peserta</th>
@@ -231,12 +324,13 @@
 
         <!-- Selected History Summary & Report -->
         <div class="glass-panel p-6 lg:col-span-2 flex flex-col">
-          <div class="flex justify-between items-center mb-6">
+          <div class="flex justify-between items-center mb-6 gap-3 flex-wrap">
             <h3 class="text-lg font-bold" id="history-summary-title">Pilih Kuis Dari Riwayat</h3>
             <button id="btn-download-hrd-pdf" class="btn btn-primary text-sm" disabled>Download PDF Report</button>
           </div>
 
           <!-- Printable Area (Assessment Report for HRD) -->
+          <div class="report-scroll">
           <div id="hrd-report-print-container" class="bg-white p-8 text-gray-800 text-sm hidden" style="font-family: Arial, sans-serif; min-height: 297mm; box-sizing: border-box; width: 100%;">
             <!-- Header -->
             <div class="flex justify-between items-center mb-6 pb-4" style="border-bottom: 2px solid #0056b3; display: flex; justify-content: space-between; align-items: center;">
@@ -299,6 +393,10 @@
                 <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Project / Quiz Name</span>
                 <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-quiz-name">-</div>
               </div>
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px; grid-column: span 2;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Question Set</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-question-set">-</div>
+              </div>
             </div>
 
             <div style="border-top: 1.5px solid #4b5563; border-bottom: 1.5px solid #4b5563; py: 16px; margin-bottom: 24px; padding: 12px 0;">
@@ -324,6 +422,10 @@
               </div>
               <div style="display: flex; gap: 24px;">
                 <div style="text-align: center;">
+                  <span style="font-size: 9px; font-weight: 700; color: #4b5563; text-transform: uppercase;">Peserta</span>
+                  <div style="font-size: 14px; font-weight: 800; color: #111827;" id="report-total-participants">-</div>
+                </div>
+                <div style="text-align: center;">
                   <span style="font-size: 9px; font-weight: 700; color: #4b5563; text-transform: uppercase;">Passing Grade</span>
                   <div style="font-size: 14px; font-weight: 800; color: #111827;" id="report-passing-grade">-</div>
                 </div>
@@ -339,6 +441,8 @@
             </div>
           </div>
 
+          </div><!-- /report-scroll -->
+
           <div id="history-placeholder-msg" class="flex-1 flex items-center justify-center border border-dashed border-gray-800 rounded-xl py-24 text-center">
             <span class="text-gray-500 text-sm">Pilih salah satu kuis yang sudah selesai pada kolom sebelah kiri untuk memuat laporan hasil penilaian secara komprehensif.</span>
           </div>
@@ -349,11 +453,11 @@
   </main>
 
   <!-- ADD / EDIT QUESTION MODAL -->
-  <div id="question-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-filter backdrop-blur-md hidden flex items-center justify-center z-50">
-    <div class="w-full max-w-lg glass-panel p-6 m-4" style="max-height: 90vh; overflow-y: auto;">
+  <div id="question-modal" class="modal-backdrop hidden">
+    <div class="modal-sheet glass-panel p-6" style="max-width: 32rem;" role="dialog" aria-modal="true" aria-labelledby="question-modal-title">
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-xl font-bold text-gradient" id="question-modal-title">Tambah Soal Baru</h2>
-        <button onclick="closeQuestionModal()" class="text-gray-400 hover:text-white">&times;</button>
+        <button type="button" onclick="closeQuestionModal()" class="text-gray-400 hover:text-white" aria-label="Tutup" style="font-size: 1.75rem; line-height: 1; min-width: 44px; min-height: 44px;">&times;</button>
       </div>
 
       <form id="form-question" class="flex flex-col gap-4">
@@ -364,7 +468,7 @@
         </div>
         
         <!-- Options Container for MCQ -->
-        <div class="grid grid-cols-2 gap-4" id="options-container">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="options-container">
           <div>
             <label class="text-xs text-gray-400 font-bold">PILIHAN A</label>
             <input type="text" id="option-a" class="input-field mt-1" placeholder="Pilihan A" required>
@@ -383,7 +487,7 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="text-xs text-gray-400 font-bold">TIPE SOAL</label>
             <select id="question-type" class="input-field mt-1" style="background-color: #0f172a;" onchange="toggleOptionFields()">
@@ -395,6 +499,16 @@
             <label class="text-xs text-gray-400 font-bold">KATEGORI</label>
             <input type="text" id="question-category" class="input-field mt-1" placeholder="Contoh: K3, HRD, dll." required>
           </div>
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-400 font-bold" for="question-level">LEVEL SOAL</label>
+          <select id="question-level" class="input-field mt-1" style="background-color: #0f172a;">
+            <option value="easy">Easy (mudah)</option>
+            <option value="normal" selected>Normal (sedang)</option>
+            <option value="hard">Hard (sulit)</option>
+          </select>
+          <p class="form-hint mt-1">Level dipakai untuk mengacak soal tiap peserta saat Anda membuat kuis.</p>
         </div>
 
         <div class="grid grid-cols-1 gap-4">
@@ -417,27 +531,12 @@
       </form>
     </div>
   </div>
-
-  <style>
-    /* Styling button transitions */
-    .nav-btn {
-      color: var(--text-muted);
-      border: 1px solid transparent;
-    }
-    .nav-btn:hover {
-      background: rgba(255, 255, 255, 0.05);
-      color: var(--text-main);
-    }
-    .nav-btn.active {
-      background: rgba(99, 102, 241, 0.15);
-      border-color: rgba(99, 102, 241, 0.3);
-      color: #818cf8;
-    }
-  </style>
-
   <!-- Scripts -->
+  <script src="js/common.js"></script>
   <script src="js/api.js"></script>
   <script src="js/auth.js"></script>
+  <script src="js/pdf.js"></script>
+  <script src="js/qrcode.js"></script>
   <script src="js/question-bank.js"></script>
   <script src="js/realtime.js"></script>
   <script src="js/host.js"></script>
