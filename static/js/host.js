@@ -663,6 +663,7 @@ async function selectHistoryRoom(room) {
             ? { color: '#dc2626', bg: '#fef2f2', border: '#fecaca' }
             : { color: '#6b7280', bg: '#f3f4f6', border: '#d1d5db' };
         const row = document.createElement('tr');
+        row.className = 'pdf-avoid-break'; // PDF: satu baris peserta tidak boleh terbelah di antara dua halaman
         row.setAttribute('style', 'border-bottom: 1px solid #e2e8f0;');
         row.innerHTML = `
           <td style="padding: 8px 0; color: #4b5563;">${idx + 1}</td>

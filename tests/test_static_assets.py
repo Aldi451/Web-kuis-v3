@@ -152,6 +152,28 @@ def test_baseline_is_small_and_pages_load_it_before_index_css():
         assert cdn and 'media="print"' in cdn.group(0), f"{page}: CDN Tailwind tidak boleh memblokir render"
 
 
+# ───────────── ekspor PDF ─────────────
+
+def test_pdf_export_pins_the_html2pdf_container_to_the_left_with_the_same_width():
+    """
+    Regresi (hanya bisa dilihat dengan merender halaman PDF): html2pdf menaruh salinan di container selebar area cetak
+    (190 mm = 718 px) dan MEMUSATKANNYA (margin: auto). Di layar yang lebih lebar dari kertas posisi container di halaman
+    asli berbeda dengan di iframe html2canvas, sehingga isi PDF terpotong di kiri (laptop) atau bergeser (HP); salinan
+    selebar 794 px juga terpotong 76 px di kanan. Penjaga ini memastikan perbaikannya tidak hilang.
+    """
+    js = read(STATIC / "js" / "pdf.js")
+    assert "CONTENT_WIDTH_PX: Math.round((210 - 2 * 10) * 96 / 25.4)" in js        # 718 px = A4 dikurangi margin 10 mm
+    assert "clone.style.width = `${this.CONTENT_WIDTH_PX}px`" in js                # salinan selebar container
+    assert ".toContainer().then(function ()" in js                                  # container dimodifikasi sebelum difoto
+    assert "box.style.margin = '0'" in js and "box.style.width = `${contentWidth}px`" in js
+    assert "margin: this.MARGIN_MM" in js and "MARGIN_MM: 10" in js                 # margin kertas dan hitungan lebar sinkron
+
+
+def test_hrd_report_rows_are_not_split_across_pdf_pages():
+    assert "row.className = 'pdf-avoid-break'" in read(STATIC / "js" / "host.js")
+    assert "avoid: ['.pdf-avoid-break']" in read(STATIC / "js" / "pdf.js")
+
+
 # ───────────── viewport & sintaks ─────────────
 
 @pytest.mark.parametrize("page", sorted(PAGES))
