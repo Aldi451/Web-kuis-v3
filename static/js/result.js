@@ -1,186 +1,25 @@
-// js/result.js
+// js/result.js - layar hasil peserta: skor, peringkat realtime, review soal, dan PDF
+//
+// Bergantung pada room.js (state & helper: clientRoom, clientParticipant, clientQuestions, $, debounce).
+// Skor dan kunci jawaban SELALU berasal dari server (hasil penilaian), bukan dihitung di HP.
 
-async function submitQuizAnswers(isAutoSubmit = false) {
-  // Stop the timer
-  window.Timer.stop();
+let lastResult = null;
+let rankPollTimer = null;
 
-  if (!isAutoSubmit) {
-    if (!confirm("Apakah Anda yakin ingin menyelesaikan kuis sekarang?")) {
-      // Restart timer if user declines (would require keeping track of exact time, but simple prompt is ok)
-      window.Timer.start(window.Timer.timeRemaining, handleTimerTick, handleTimerExpired);
-      return;
-    }
-  }
+document.addEventListener('DOMContentLoaded', () => {
+  $('btn-download-pdf-client').addEventListener('click', downloadClientPDF);
+  $('btn-finish-session').addEventListener('click', finishSession);
+});
 
-  // Disable UI
-  document.getElementById('btn-next-question').disabled = true;
-  document.getElementById('btn-prev-question').disabled = true;
-  document.querySelectorAll('.option-btn').forEach(btn => btn.disabled = true);
-
-  // 1. Calculate Score & Correct/Incorrect Answers
-  let correctCount = 0;
-  let incorrectCount = 0;
-  const answersPayload = [];
-
-  clientQuestions.forEach(q => {
-    const userAnswer = userAnswers[q.id] || '-';
-    const isCorrect = userAnswer === q.correct_option;
-
-    if (isCorrect) {
-      correctCount++;
-    } else {
-      incorrectCount++;
-    }
-
-    answersPayload.push({
-      room_id: clientRoom.id,
-      participant_name: clientParticipant.participant_name,
-      question_id: q.id,
-      answer_user: userAnswer,
-      correct_answer: q.correct_option,
-      is_correct: isCorrect
-    });
-  });
-
-  const rawScore = (correctCount / clientQuestions.length) * 100;
-  const finalScore = Math.round(rawScore);
-  const status = finalScore >= clientRoom.passing_grade ? 'PASS' : 'FAIL';
-
-  let evaluatedAnswers = answersPayload;
-  let finalScoreCalculated = finalScore;
-  let finalStatusCalculated = status;
-  let correctCountCalculated = correctCount;
-  let incorrectCountCalculated = incorrectCount;
-
-  try {
-    if (answersPayload.length > 0) {
-      const response = await window.API.submitAnswersBatch(answersPayload);
-      if (response && response.answers) {
-        evaluatedAnswers = response.answers;
-        finalScoreCalculated = response.score;
-        finalStatusCalculated = response.status;
-        
-        // Recalculate stats based on backend
-        correctCountCalculated = evaluatedAnswers.filter(a => a.is_correct).length;
-        incorrectCountCalculated = evaluatedAnswers.length - correctCountCalculated;
-      }
-    } else {
-      // Just finalize if no answers
-      await window.API.request(`/api/participants/${clientParticipant.id}/finalize`, 'POST', {
-        score: finalScore,
-        status: status
-      });
-    }
-  } catch (err) {
-    console.error("Gagal menyimpan hasil kuis:", err);
-  }
-
-  // Unsubscribe realtime events
-  window.RealtimeManager.unsubscribeAll();
-
-  // 4. Render Results Screen
-  showResultPanel(finalScoreCalculated, finalStatusCalculated, correctCountCalculated, incorrectCountCalculated, evaluatedAnswers);
-
-  // 5. Start real-time rank subscription
-  window.RealtimeManager.subscribeToClientRank(clientRoom.id, () => {
-    updateClientRank();
-  });
-  updateClientRank(); // Initial fetch
-}
-
-function showResultPanel(score, status, correct, incorrect, answers) {
-  document.getElementById('client-quiz-section').classList.add('hidden');
-  const resultSection = document.getElementById('client-result-section');
-  resultSection.classList.remove('hidden');
-
-  // Fill details
-  document.getElementById('result-score').textContent = score;
-  
-  const statusBadge = document.getElementById('result-status-badge');
-  statusBadge.textContent = status;
-  if (status === 'PASS') {
-    statusBadge.className = 'badge py-2 px-6 text-sm badge-pass';
-  } else {
-    statusBadge.className = 'badge py-2 px-6 text-sm badge-fail';
-  }
-
-  document.getElementById('result-stat-correct').textContent = correct;
-  document.getElementById('result-stat-incorrect').textContent = incorrect;
-
-  // Render review lists (Visual review on page and Hidden printable PDF preview)
-  const reviewList = document.getElementById('result-review-list');
-  reviewList.innerHTML = '';
-
-  const pdfReviewList = document.getElementById('pdf-questions-review-list');
-  pdfReviewList.innerHTML = '';
-
-  // Setup client printable card values
-  document.getElementById('pdf-date').textContent = `Tanggal: ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-  document.getElementById('pdf-participant-name').textContent = clientParticipant.participant_name;
-  
-  const pdfDept = document.getElementById('pdf-department');
-  if (pdfDept) pdfDept.textContent = clientParticipant.department || '-';
-  
-  document.getElementById('pdf-quiz-name').textContent = clientRoom.quiz_name;
-  document.getElementById('pdf-score').textContent = score;
-  document.getElementById('pdf-status').textContent = status;
-
-  clientQuestions.forEach((q, idx) => {
-    const ans = answers.find(a => a.question_id === q.id);
-    const userAnswerStr = ans ? ans.answer_user : '-';
-    const qType = q.question_type || 'mcq';
-    
-    // UI Question review element
-    const reviewCard = document.createElement('div');
-    reviewCard.className = `glass-panel p-4 border bg-opacity-10 ${ans.is_correct ? 'border-emerald-500' : 'border-red-500'}`;
-    
-    let answerTextUser = "";
-    let answerTextCorrect = "";
-
-    if (qType === 'essay') {
-      answerTextUser = escapeHTML(userAnswerStr);
-      answerTextCorrect = escapeHTML(q.correct_option);
-    } else {
-      answerTextUser = `${userAnswerStr}) ${escapeHTML(getOptionText(q, userAnswerStr))}`;
-      answerTextCorrect = `${q.correct_option}) ${escapeHTML(getOptionText(q, q.correct_option))}`;
-    }
-
-    reviewCard.innerHTML = `
-      <div class="flex justify-between items-center mb-2">
-        <span class="text-xs text-gray-400 font-bold">SOAL ${idx + 1} (${qType === 'essay' ? 'ESSAY' : 'PILIHAN GANDA'})</span>
-        <span class="badge ${ans.is_correct ? 'badge-pass' : 'badge-fail'}">${ans.is_correct ? 'BENAR' : 'SALAH'}</span>
-      </div>
-      <p class="font-medium text-gray-200 mb-4">${escapeHTML(q.question_text)}</p>
-      <div class="grid grid-cols-2 gap-4 text-xs">
-        <div>
-          <span class="text-gray-400 block">Jawaban Anda:</span>
-          <span class="font-bold ${ans.is_correct ? 'text-green-400' : 'text-red-400'}">${answerTextUser}</span>
-        </div>
-        <div>
-          <span class="text-gray-400 block">Jawaban Benar:</span>
-          <span class="font-bold text-green-400">${answerTextCorrect}</span>
-        </div>
-      </div>
-    `;
-    reviewList.appendChild(reviewCard);
-
-    // PDF Printable review element
-    const pdfCard = document.createElement('div');
-    pdfCard.className = 'border-b border-gray-100 py-3';
-    pdfCard.setAttribute('style', 'border-bottom: 1px solid #e2e8f0; padding: 12px 0;');
-    pdfCard.innerHTML = `
-      <div style="font-weight: bold; color: #111827; margin-bottom: 4px;">${idx + 1}. ${escapeHTML(q.question_text)} <span style="font-size: 9px; color: #4b5563;">(${qType.toUpperCase()})</span></div>
-      <div style="margin-left: 10px; font-size: 11px; color: #374151;">
-        <div style="margin-bottom: 2px;">Jawaban Anda: <strong style="color: ${ans.is_correct ? '#16a34a' : '#dc2626'}">${answerTextUser}</strong></div>
-        <div style="margin-bottom: 2px;">Jawaban Benar: <strong style="color: #16a34a;">${answerTextCorrect}</strong></div>
-        <div>Status: <span style="color: ${ans.is_correct ? '#16a34a' : '#dc2626'}; font-weight: bold;">${ans.is_correct ? 'BENAR' : 'SALAH'}</span></div>
-      </div>
-    `;
-    pdfReviewList.appendChild(pdfCard);
-  });
-
-  // Attach PDF download action
-  document.getElementById('btn-download-pdf-client').addEventListener('click', downloadClientPDF);
+function finishSession() {
+  window.RealtimeManager.disconnect();
+  clearInterval(rankPollTimer);
+  localStorage.removeItem('client_room_code');
+  localStorage.removeItem('client_room_id');
+  localStorage.removeItem('client_participant_name');
+  localStorage.removeItem('client_department');
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = 'index.html';
 }
 
 function getOptionText(question, optionKey) {
@@ -191,62 +30,173 @@ function getOptionText(question, optionKey) {
   return '-';
 }
 
-function downloadClientPDF() {
-  const element = document.getElementById('client-pdf-print-container');
-  element.classList.remove('hidden');
+// Teks jawaban peserta & kunci untuk satu soal (pilihan ganda: "B) teks pilihan"; essay: teks apa adanya)
+function describeAnswers(question, answer) {
+  const type = question.question_type || 'mcq';
+  const given = (answer.answer_user || '').trim();
+  const correctKey = answer.correct_answer;
 
-  const opt = {
-    margin:       10,
-    filename:     `${clientRoom.quiz_name.replace(/\s+/g, '_')}.pdf`,
-    image:        { type: 'jpeg', quality: 0.98 },
-    html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  if (type === 'essay') {
+    return {
+      type,
+      user: given ? window.escapeHTML(given) : '<em>(Tidak dijawab)</em>',
+      correct: window.escapeHTML(correctKey)
+    };
+  }
+  return {
+    type,
+    user: given ? `${window.escapeHTML(given)}) ${window.escapeHTML(getOptionText(question, given))}` : '<em>(Tidak dijawab)</em>',
+    correct: `${window.escapeHTML(correctKey)}) ${window.escapeHTML(getOptionText(question, correctKey))}`
   };
+}
 
-  html2pdf().set(opt).from(element).save().then(() => {
-    element.classList.add('hidden');
+function showResultPanel(result) {
+  lastResult = result;
+
+  $('client-waiting-section').classList.add('hidden');
+  $('client-quiz-section').classList.add('hidden');
+  document.body.classList.remove('in-quiz');
+  const resultSection = $('client-result-section');
+  resultSection.classList.remove('hidden');
+  window.scrollTo(0, 0);
+
+  const status = result.status === 'PASS' ? 'PASS' : 'FAIL';
+  const answers = Array.isArray(result.answers) ? result.answers : [];
+  const correct = answers.filter((a) => a.is_correct).length;
+  const incorrect = answers.length - correct;
+
+  // Fill details
+  $('result-score').textContent = result.score;
+  $('result-rank').textContent = result.rank > 0 ? result.rank : '-';
+  $('pdf-rank').textContent = result.rank > 0 ? result.rank : '-';
+
+  const statusBadge = $('result-status-badge');
+  statusBadge.textContent = status;
+  statusBadge.className = `badge py-2 px-6 text-sm ${status === 'PASS' ? 'badge-pass' : 'badge-fail'}`;
+
+  $('result-stat-correct').textContent = correct;
+  $('result-stat-incorrect').textContent = incorrect;
+
+  // Render review lists (Visual review on page and Hidden printable PDF preview)
+  const reviewList = $('result-review-list');
+  reviewList.innerHTML = '';
+  const pdfReviewList = $('pdf-questions-review-list');
+  pdfReviewList.innerHTML = '';
+
+  // Setup client printable card values
+  $('pdf-date').textContent = `Tanggal: ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  $('pdf-participant-name').textContent = clientParticipant.participant_name;
+  const pdfDept = $('pdf-department');
+  if (pdfDept) pdfDept.textContent = clientParticipant.department || '-';
+  $('pdf-quiz-name').textContent = clientRoom.quiz_name;
+  $('pdf-score').textContent = result.score;
+  $('pdf-status').textContent = status;
+
+  if (clientQuestions.length === 0) {
+    reviewList.innerHTML = '<p class="text-gray-500 text-sm">Review soal tidak dapat dimuat. Skor di atas tetap sah.</p>';
+    return;
+  }
+
+  clientQuestions.forEach((q, idx) => {
+    const ans = answers.find((a) => a.question_id === q.id);
+    if (!ans) return;
+    const text = describeAnswers(q, ans);
+    const typeLabel = text.type === 'essay' ? 'ESSAY' : 'PILIHAN GANDA';
+
+    // UI Question review element
+    const reviewCard = document.createElement('div');
+    reviewCard.className = `glass-panel p-4 border bg-opacity-10 ${ans.is_correct ? 'border-emerald-500' : 'border-red-500'}`;
+    reviewCard.innerHTML = `
+      <div class="flex justify-between items-center mb-2 gap-2">
+        <span class="text-xs text-gray-400 font-bold">SOAL ${idx + 1} (${typeLabel})</span>
+        <span class="badge ${ans.is_correct ? 'badge-pass' : 'badge-fail'}">${ans.is_correct ? 'BENAR' : 'SALAH'}</span>
+      </div>
+      <p class="font-medium text-gray-200 mb-4" style="overflow-wrap: anywhere; white-space: pre-line;">${window.escapeHTML(q.question_text)}</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <div style="min-width: 0; overflow-wrap: anywhere;">
+          <span class="text-gray-400 block">Jawaban Anda:</span>
+          <span class="font-bold ${ans.is_correct ? 'text-green-400' : 'text-red-400'}">${text.user}</span>
+        </div>
+        <div style="min-width: 0; overflow-wrap: anywhere;">
+          <span class="text-gray-400 block">Jawaban Benar:</span>
+          <span class="font-bold text-green-400">${text.correct}</span>
+        </div>
+      </div>
+    `;
+    reviewList.appendChild(reviewCard);
+
+    // PDF Printable review element
+    const pdfCard = document.createElement('div');
+    pdfCard.className = 'border-b border-gray-100 py-3 pdf-avoid-break';
+    pdfCard.setAttribute('style', 'border-bottom: 1px solid #e2e8f0; padding: 12px 0;');
+    pdfCard.innerHTML = `
+      <div style="font-weight: bold; color: #111827; margin-bottom: 4px;">${idx + 1}. ${window.escapeHTML(q.question_text)} <span style="font-size: 9px; color: #4b5563;">(${text.type.toUpperCase()})</span></div>
+      <div style="margin-left: 10px; font-size: 11px; color: #374151;">
+        <div style="margin-bottom: 2px;">Jawaban Anda: <strong style="color: ${ans.is_correct ? '#16a34a' : '#dc2626'}">${text.user}</strong></div>
+        <div style="margin-bottom: 2px;">Jawaban Benar: <strong style="color: #16a34a;">${text.correct}</strong></div>
+        <div>Status: <span style="color: ${ans.is_correct ? '#16a34a' : '#dc2626'}; font-weight: bold;">${ans.is_correct ? 'BENAR' : 'SALAH'}</span></div>
+      </div>
+    `;
+    pdfReviewList.appendChild(pdfCard);
   });
 }
 
-function escapeHTML(str) {
-  if (!str) return '';
-  return str.replace(/[&<>'"]/g, 
-    tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
-  );
+async function downloadClientPDF() {
+  const button = $('btn-download-pdf-client');
+  window.UI.setBusy(button, true, 'Menyiapkan PDF...');
+  try {
+    await window.PDFExport.fromElement(
+      $('client-pdf-print-container'),
+      `${window.PDFExport.safeFilename(clientRoom.quiz_name)}.pdf`
+    );
+  } catch (err) {
+    console.error('Gagal membuat PDF:', err);
+    window.UI.toast('Gagal membuat PDF: ' + err.message, 'error', 7000);
+  } finally {
+    window.UI.setBusy(button, false);
+  }
+}
+
+// ───────────────────────── Peringkat realtime ─────────────────────────
+
+const refreshRankSoon = debounce(() => updateClientRank(), 500);
+
+function startRankUpdates() {
+  // Setiap peserta lain yang selesai mengubah peringkat -> dengarkan lewat WebSocket
+  window.RealtimeManager.connect(clientRoom.id, {
+    onAnswerSubmitted: refreshRankSoon,
+    onReconnect: () => updateClientRank()
+  });
+  // Cadangan jika WebSocket diblokir jaringan
+  clearInterval(rankPollTimer);
+  rankPollTimer = setInterval(updateClientRank, 20000);
+  updateClientRank(); // Initial fetch
 }
 
 async function updateClientRank() {
   try {
     let participants = await window.API.getRoomParticipants(clientRoom.id);
-    participants = participants.filter(p => p.submit_time !== null);
+    participants = participants.filter((p) => p.submit_time !== null);
 
-  // Sort participants by score DESC and submit_time ASC
-  participants.sort((a, b) => {
-    if (b.score !== a.score) {
-      return b.score - a.score; // Highest score first
-    }
-    // If scores are equal, sort by submit_time ASC (earliest time first)
-    const timeA = new Date(a.submit_time).getTime();
-    const timeB = new Date(b.submit_time).getTime();
-    return timeA - timeB;
-  });
+    // Sort participants by score DESC and submit_time ASC
+    participants.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score; // Highest score first
+      }
+      // If scores are equal, sort by submit_time ASC (earliest time first)
+      return new Date(a.submit_time).getTime() - new Date(b.submit_time).getTime();
+    });
 
-  // Find client rank
-  const rankIndex = participants.findIndex(p => p.id === clientParticipant.id);
-  const rank = rankIndex !== -1 ? rankIndex + 1 : '-';
+    // Find client rank
+    const rankIndex = participants.findIndex((p) => p.id === clientParticipant.id);
+    const rank = rankIndex !== -1 ? rankIndex + 1 : (lastResult && lastResult.rank > 0 ? lastResult.rank : '-');
 
-  // Update UI
-  const rankElement = document.getElementById('result-rank');
-  if (rankElement) {
-    rankElement.textContent = rank;
-  }
-  const pdfRankElement = document.getElementById('pdf-rank');
-  if (pdfRankElement) {
-    pdfRankElement.textContent = rank;
-  }
+    // Update UI
+    const rankElement = $('result-rank');
+    if (rankElement) rankElement.textContent = rank;
+    const pdfRankElement = $('pdf-rank');
+    if (pdfRankElement) pdfRankElement.textContent = rank;
   } catch (error) {
     console.error('Failed to fetch participants for ranking:', error);
   }
 }
-
-window.submitQuizAnswers = submitQuizAnswers;

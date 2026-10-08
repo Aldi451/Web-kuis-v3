@@ -2,15 +2,22 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="color-scheme" content="dark">
   <title>Admin Dashboard - Quiz Manager</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="css/tailwind.local.css">
+  <!-- CDN penuh dimuat TANPA memblokir tampilan: jaring pengaman jika ada class Tailwind baru yang belum di-build ke css/tailwind.local.css -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="index.css">
 </head>
-<body class="p-6">
+<body class="admin-body">
 
-  <div class="container max-w-4xl">
-    <div class="header-container glass-panel p-6 mb-8 flex justify-between items-center">
+  <div class="container max-w-4xl" style="padding: 0;">
+    <div class="header-container glass-panel p-6 mb-8 flex justify-between items-center" style="flex-wrap: wrap;">
       <div>
         <h1 class="text-2xl font-bold text-gradient">Admin Dashboard</h1>
         <p class="text-xs text-gray-400">Manajemen Pengguna &amp; Hak Akses</p>
@@ -22,23 +29,28 @@
       <!-- Form Add User -->
       <div class="glass-panel p-6 md:col-span-1">
         <h3 class="text-lg font-bold mb-4 text-gradient">Tambah Pengguna</h3>
-        <form id="form-add-user" class="flex flex-col gap-4">
+        <form id="form-add-user" class="flex flex-col gap-4" autocomplete="off">
           <div>
-            <label class="text-xs text-gray-400 font-bold">USERNAME</label>
-            <input type="text" id="add-username" class="input-field mt-1" placeholder="Username baru" required>
+            <label class="field-label" for="add-username">USERNAME</label>
+            <input type="text" id="add-username" class="input-field mt-1" placeholder="Username baru" required maxlength="50"
+                   autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
           </div>
           <div>
-            <label class="text-xs text-gray-400 font-bold">PASSWORD</label>
-            <input type="password" id="add-password" class="input-field mt-1" placeholder="Password baru" required>
+            <label class="field-label" for="add-password">PASSWORD</label>
+            <div class="input-wrap mt-1">
+              <input type="password" id="add-password" class="input-field" placeholder="Password baru" required
+                     autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
+              <button type="button" class="input-toggle" id="toggle-add-password" aria-label="Tampilkan password">LIHAT</button>
+            </div>
           </div>
           <div>
-            <label class="text-xs text-gray-400 font-bold">ROLE</label>
-            <select id="add-role" class="input-field mt-1" style="background-color: #0f172a;">
+            <label class="field-label" for="add-role">ROLE</label>
+            <select id="add-role" class="input-field mt-1">
               <option value="Host" selected>Host</option>
               <option value="Admin">Admin</option>
             </select>
           </div>
-          <button type="submit" class="btn btn-primary w-full mt-2">Simpan User</button>
+          <button type="submit" id="btn-add-user" class="btn btn-primary w-full mt-2">Simpan User</button>
         </form>
       </div>
 
@@ -46,7 +58,7 @@
       <div class="glass-panel p-6 md:col-span-2">
         <h3 class="text-lg font-bold mb-4 text-gradient">Daftar Pengguna</h3>
         <div class="overflow-x-auto">
-          <table class="custom-table w-full">
+          <table class="custom-table responsive-table w-full">
             <thead>
               <tr>
                 <th>Username</th>
@@ -65,6 +77,7 @@
     </div>
   </div>
 
+  <script src="js/common.js"></script>
   <script src="js/api.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/admin.js"></script>

@@ -2,32 +2,44 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="color-scheme" content="dark">
   <title>Quiz Room - Participant View</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="css/tailwind.local.css">
+  <!-- CDN penuh dimuat TANPA memblokir tampilan: jaring pengaman jika ada class Tailwind baru yang belum di-build ke css/tailwind.local.css -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="index.css">
-  <!-- HTML2PDF CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- html2pdf (900 KB) TIDAK dimuat di sini: baru diunduh saat tombol "Download PDF" ditekan (js/pdf.js) -->
 </head>
-<body class="flex items-center justify-center p-4 min-h-screen">
+<body class="client-body">
 
-  <div class="w-full max-w-2xl">
+  <!-- Status koneksi realtime (muncul otomatis saat sinyal HP putus) -->
+  <div id="conn-banner" class="conn-banner hidden" role="status" aria-live="polite"></div>
+
+  <main class="client-shell">
 
     <!-- A. CLIENT WAITING ROOM VIEW -->
-    <div id="client-waiting-section" class="glass-panel p-8 text-center pulse-element">
+    <section id="client-waiting-section" class="glass-panel waiting-panel pulse-element">
       <span class="text-xs text-indigo-400 font-bold uppercase tracking-wider block mb-2">Kamu Terdaftar</span>
       <h1 class="text-3xl font-extrabold mb-1" id="client-wait-quiz-title">Loading Quiz Name...</h1>
-      
-      <div class="my-6 py-4 px-6 bg-gray-900 border border-gray-800 rounded-xl inline-block">
+      <p class="text-sm text-gray-400" id="client-wait-me"></p>
+
+      <div class="room-code-card">
         <span class="text-xs text-gray-500 font-bold tracking-wider">ROOM CODE</span>
-        <div class="text-2xl font-extrabold tracking-widest text-indigo-400 mt-1" id="client-wait-room-code">-</div>
+        <div class="code" id="client-wait-room-code">-</div>
       </div>
 
       <div class="mb-8">
-        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-yellow-500 bg-opacity-10 border border-yellow-500 border-opacity-25 text-yellow-500 text-sm font-semibold">
+        <div id="client-wait-status" class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-yellow-500 bg-opacity-10 border border-yellow-500 border-opacity-25 text-yellow-500 text-sm font-semibold">
           <span class="w-2 h-2 rounded-full bg-yellow-500 animate-ping"></span>
-          Waiting Host to Start Quiz...
+          <span id="client-wait-status-text">Waiting Host to Start Quiz...</span>
         </div>
+        <div id="client-init-error" class="form-error hidden mt-4" role="alert"></div>
+        <button type="button" id="btn-retry-init" class="btn btn-primary mt-4 hidden">Coba Lagi</button>
       </div>
 
       <div class="text-left border-t border-gray-800 pt-6">
@@ -37,77 +49,85 @@
           <li class="text-gray-500 text-xs">Memuat nama peserta...</li>
         </ul>
       </div>
-    </div>
+
+      <button type="button" id="btn-leave-room" class="btn btn-secondary text-sm mt-6">Bukan saya / Keluar dari room</button>
+    </section>
 
     <!-- B. ACTIVE QUIZ PLAY VIEW -->
-    <div id="client-quiz-section" class="glass-panel p-8 hidden">
-      <!-- Header info & Timer -->
-      <div class="flex justify-between items-center mb-6 pb-4 border-b border-gray-800">
-        <div>
-          <span class="text-xs text-gray-400 font-bold uppercase" id="quiz-progress-text">Soal 1 dari 10</span>
-          <h2 class="text-lg font-bold text-gray-200" id="quiz-active-title">Safety Awareness</h2>
+    <section id="client-quiz-section" class="quiz-screen hidden">
+      <!-- Header info & Timer (menempel di atas layar) -->
+      <header class="quiz-topbar glass-panel">
+        <div class="quiz-topbar-info">
+          <span class="progress-text" id="quiz-progress-text">Soal 1 dari 10</span>
+          <h2 id="quiz-active-title">Safety Awareness</h2>
         </div>
-        <div class="text-right">
-          <span class="text-xs text-gray-400 font-bold uppercase block">Sisa Waktu</span>
-          <span class="text-2xl font-mono font-extrabold text-red-400" id="quiz-timer">00:00</span>
+        <div class="quiz-timer-box">
+          <span class="label">Sisa Waktu</span>
+          <span class="quiz-timer" id="quiz-timer" role="timer">00:00</span>
+        </div>
+      </header>
+      <div class="quiz-progress-track" aria-hidden="true"><div id="quiz-progress-bar" class="quiz-progress-fill"></div></div>
+
+      <div class="quiz-card glass-panel">
+        <!-- Question Text -->
+        <p class="quiz-question" id="quiz-question-text">Loading Question...</p>
+
+        <!-- Option Buttons -->
+        <div class="quiz-options" id="client-mcq-container">
+          <button type="button" data-option="A" id="btn-opt-A" class="option-btn">
+            <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold text-xs">A</span>
+            <span id="text-opt-A">Option A text</span>
+          </button>
+          <button type="button" data-option="B" id="btn-opt-B" class="option-btn">
+            <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold text-xs">B</span>
+            <span id="text-opt-B">Option B text</span>
+          </button>
+          <button type="button" data-option="C" id="btn-opt-C" class="option-btn">
+            <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold text-xs">C</span>
+            <span id="text-opt-C">Option C text</span>
+          </button>
+          <button type="button" data-option="D" id="btn-opt-D" class="option-btn">
+            <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold text-xs">D</span>
+            <span id="text-opt-D">Option D text</span>
+          </button>
+        </div>
+
+        <!-- Textarea for Essay -->
+        <div class="flex flex-col gap-2 hidden" id="client-essay-container">
+          <label class="field-label" for="client-essay-answer">JAWABAN ESSAY ANDA</label>
+          <textarea id="client-essay-answer" class="input-field" rows="6" maxlength="5000"
+                    autocapitalize="sentences" spellcheck="true"
+                    placeholder="Ketikkan jawaban essay Anda di sini secara lengkap..."></textarea>
+          <p class="form-hint">Jawaban tersimpan otomatis di HP ini saat Anda mengetik.</p>
         </div>
       </div>
 
-      <!-- Question Text -->
-      <div class="mb-8">
-        <p class="text-lg md:text-xl font-medium text-white leading-relaxed" id="quiz-question-text">
-          Loading Question...
-        </p>
-      </div>
+      <!-- Navigasi nomor soal: hijau = sudah dijawab, bingkai ungu = soal ini -->
+      <nav id="quiz-navigator" class="quiz-navigator" aria-label="Navigasi nomor soal"></nav>
+      <p id="quiz-answered-count" class="quiz-answered">0 dari 0 soal terjawab</p>
 
-      <!-- Option Buttons -->
-      <div class="flex flex-col gap-4 mb-8" id="client-mcq-container">
-        <button onclick="selectOption('A')" id="btn-opt-A" class="option-btn">
-          <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold mr-4 text-xs">A</span>
-          <span id="text-opt-A">Option A text</span>
-        </button>
-        <button onclick="selectOption('B')" id="btn-opt-B" class="option-btn">
-          <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold mr-4 text-xs">B</span>
-          <span id="text-opt-B">Option B text</span>
-        </button>
-        <button onclick="selectOption('C')" id="btn-opt-C" class="option-btn">
-          <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold mr-4 text-xs">C</span>
-          <span id="text-opt-C">Option C text</span>
-        </button>
-        <button onclick="selectOption('D')" id="btn-opt-D" class="option-btn">
-          <span class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center font-bold mr-4 text-xs">D</span>
-          <span id="text-opt-D">Option D text</span>
-        </button>
-      </div>
-
-      <!-- Textarea for Essay -->
-      <div class="flex flex-col gap-2 mb-8 hidden" id="client-essay-container">
-        <label class="text-xs text-gray-400 font-bold">JAWABAN ESSAY ANDA</label>
-        <textarea id="client-essay-answer" class="input-field" rows="5" placeholder="Ketikkan jawaban essay Anda di sini secara lengkap..." oninput="saveEssayAnswer()"></textarea>
-      </div>
-
-      <!-- Navigation buttons -->
-      <div class="flex justify-between items-center">
-        <button id="btn-prev-question" onclick="prevQuestion()" class="btn btn-secondary text-sm">Kembali</button>
-        <button id="btn-next-question" onclick="nextQuestion()" class="btn btn-primary text-sm">Selanjutnya</button>
-      </div>
-    </div>
+      <!-- Navigation buttons (menempel di bawah layar, mudah dijangkau jempol) -->
+      <footer class="quiz-footer">
+        <button type="button" id="btn-prev-question" class="btn btn-secondary">&lsaquo; Kembali</button>
+        <button type="button" id="btn-next-question" class="btn btn-primary">Selanjutnya &rsaquo;</button>
+      </footer>
+    </section>
 
     <!-- C. QUIZ RESULT & REVIEW VIEW -->
-    <div id="client-result-section" class="glass-panel p-8 hidden">
+    <section id="client-result-section" class="glass-panel result-panel hidden">
       <div class="text-center mb-8">
         <span class="text-xs text-indigo-400 font-bold uppercase tracking-wider block mb-2">Quiz Selesai!</span>
         <h1 class="text-3xl font-extrabold text-white mb-6">Hasil Penilaian Anda</h1>
 
         <div class="flex flex-wrap justify-center gap-6 mb-4">
-          <div class="relative inline-flex items-center justify-center p-1 rounded-full bg-indigo-500 bg-opacity-10 border-4 border-indigo-500 border-opacity-20" style="width: 140px; height: 140px;">
+          <div class="stat-ring bg-indigo-500 bg-opacity-10 border-4 border-indigo-500 border-opacity-20">
             <div class="text-center">
               <span class="text-xs text-gray-400 font-semibold block uppercase">Score</span>
               <span class="text-4xl font-extrabold text-white" id="result-score">0</span>
             </div>
           </div>
-          
-          <div class="relative inline-flex items-center justify-center p-1 rounded-full bg-yellow-500 bg-opacity-10 border-4 border-yellow-500 border-opacity-20" style="width: 140px; height: 140px;">
+
+          <div class="stat-ring bg-yellow-500 bg-opacity-10 border-4 border-yellow-500 border-opacity-20">
             <div class="text-center">
               <span class="text-xs text-gray-400 font-semibold block uppercase">Peringkat</span>
               <span class="text-4xl font-extrabold text-yellow-400">#<span id="result-rank">-</span></span>
@@ -130,7 +150,12 @@
           </div>
         </div>
 
-        <button id="btn-download-pdf-client" class="btn btn-primary text-sm px-8">Download PDF Result</button>
+        <p class="form-hint mb-4">Peringkat diperbarui otomatis saat peserta lain selesai.</p>
+
+        <div class="flex flex-col sm:flex-row gap-3 justify-center">
+          <button id="btn-download-pdf-client" class="btn btn-primary text-sm px-8">Download PDF Result</button>
+          <button id="btn-finish-session" class="btn btn-secondary text-sm px-8">Selesai</button>
+        </div>
       </div>
 
       <!-- Printable Area (Result Certificate style) -->
@@ -209,15 +234,28 @@
           <!-- List of question reviews -->
         </div>
       </div>
-    </div>
+    </section>
 
+  </main>
+
+  <!-- Overlay saat mengirim jawaban (mencegah ketukan ganda; menampilkan tombol kirim ulang jika sinyal putus) -->
+  <div id="submit-overlay" class="overlay hidden" role="alertdialog" aria-live="assertive" aria-labelledby="submit-message">
+    <div id="submit-spinner" class="spinner"></div>
+    <p id="submit-message" class="text-lg font-semibold">Mengirim jawaban...</p>
+    <p id="submit-detail" class="text-sm text-gray-400 hidden" style="max-width: 22rem;"></p>
+    <div id="submit-actions" class="flex flex-col gap-3 hidden" style="width: 100%; max-width: 20rem;">
+      <button type="button" id="btn-submit-retry" class="btn btn-primary">Kirim Ulang</button>
+      <button type="button" id="btn-submit-home" class="btn btn-secondary hidden">Kembali ke Beranda</button>
+    </div>
   </div>
 
   <!-- Scripts -->
+  <script src="js/common.js"></script>
   <script src="js/api.js"></script>
   <script src="js/realtime.js"></script>
-  <script src="js/room.js"></script>
   <script src="js/timer.js"></script>
+  <script src="js/pdf.js"></script>
+  <script src="js/room.js"></script>
   <script src="js/result.js"></script>
 </body>
 </html>
