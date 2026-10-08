@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
@@ -61,7 +61,10 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     messages = []
     for err in exc.errors():
         loc = ".".join(str(part) for part in err.get("loc", ()) if part not in ("body", "query", "path", "header"))
-        messages.append(f"{loc}: {err.get('msg')}" if loc else str(err.get("msg")))
+        message = str(err.get("msg") or "")
+        if message.startswith("Value error, "):  # awalan teknis pydantic, tidak berguna bagi pengguna
+            message = message[len("Value error, "):]
+        messages.append(f"{loc}: {message}" if loc else message)
     return JSONResponse(status_code=422, content={"detail": "Data tidak valid - " + "; ".join(messages)})
 
 
@@ -139,12 +142,15 @@ class QuestionInput(BaseModel):
     correct_option: str = Field(min_length=1)
     category: Optional[str] = "Umum"
     question_type: Optional[str] = "mcq"
+    # easy | normal | hard. Dikosongkan: soal baru = "normal"; saat mengubah soal, level lama dipertahankan.
+    level: Optional[str] = None
 
     @model_validator(mode="after")
     def check_question(self):
         self.question_type = (self.question_type or "mcq").lower()
         if self.question_type not in ("mcq", "essay"):
             raise ValueError("question_type harus 'mcq' atau 'essay'")
+        self.level = database.normalize_level(self.level, default=None)  # ValueError -> 422
         self.category = (self.category or "").strip() or "Umum"
         if self.question_type == "mcq":
             if not all(o.strip() for o in (self.option_a, self.option_b, self.option_c, self.option_d)):
@@ -160,6 +166,17 @@ class RoomCreateRequest(BaseModel):
     passing_grade: int = Field(ge=0, le=100)
     question_ids: List[int] = Field(min_length=1)
     created_by: str = "Host"
+    # "fixed": semua peserta mendapat soal yang sama. "random": tiap peserta mendapat soal acak yang berbeda,
+    # diambil dari question_ids sejumlah level_counts (mis. {"easy": 3, "normal": 3, "hard": 2}).
+    question_mode: str = "fixed"
+    level_counts: Optional[Dict[str, int]] = None
+
+    @model_validator(mode="after")
+    def check_mode(self):
+        self.question_mode = database.normalize_question_mode(self.question_mode)  # ValueError -> 422
+        if self.question_mode == "random":
+            self.level_counts = database.normalize_level_counts(self.level_counts)
+        return self
 
 
 class RoomStatusUpdate(BaseModel):
@@ -222,6 +239,7 @@ def map_question_to_frontend(q: dict) -> dict:
         "correct_option": q["correct_answer"],  # mapped to correct_option
         "category": q.get("category") or "Umum",
         "question_type": q.get("question_type") or "mcq",
+        "level": q.get("level") or database.DEFAULT_LEVEL,
         "created_at": to_iso(q.get("created_at")),
     }
 
@@ -236,7 +254,12 @@ def map_room_to_frontend(r: dict) -> dict:
         "duration_minutes": r["duration"],
         "passing_grade": r["passing_grade"],
         "status": r["status"],
+        # Untuk room "fixed" ini daftar soal semua peserta. Untuk room "random" ini POOL soal; soal tiap peserta
+        # (hasil undian) dikirim lewat respons join sebagai 'question_ids' milik peserta itu.
         "question_ids": r.get("question_ids", []),
+        "question_mode": r.get("question_mode") or "fixed",
+        "level_counts": database.parse_level_counts(r.get("level_counts")) if r.get("question_mode") == "random" else None,
+        "questions_per_participant": database.questions_per_participant(r),
         "created_by": r["created_by"],
         "created_at": to_iso(r.get("created_at")),
         # Timer berbasis waktu server: semua HP memakai batas waktu yang sama walau jam HP-nya berbeda
@@ -372,6 +395,7 @@ def api_create_question(req: QuestionInput):
         req.correct_option,
         req.category,
         req.question_type,
+        req.level or database.DEFAULT_LEVEL,
     )
     return map_question_to_frontend(q)
 
@@ -388,6 +412,7 @@ def api_update_question(q_id: int, req: QuestionInput):
         req.correct_option,
         req.category,
         req.question_type,
+        req.level,  # None = level tidak diubah
     )
     if not q:
         raise HTTPException(status_code=404, detail="Soal tidak ditemukan")
@@ -413,6 +438,8 @@ def api_create_room(req: RoomCreateRequest):
             question_ids=req.question_ids,
             passing_grade=req.passing_grade,
             created_by=req.created_by,
+            question_mode=req.question_mode,
+            level_counts=req.level_counts,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -491,6 +518,8 @@ async def api_join_room(req: ParticipantJoinRequest):
         "participant_id": participant["id"],
         "token": participant["token"],  # rahasia: hanya dikirim ke peserta yang bersangkutan
         "resumed": resumed,
+        # Soal untuk peserta INI (room acak: berbeda tiap peserta, tetap sama saat sesi dilanjutkan)
+        "question_ids": participant["question_ids"],
     }
 
     if not resumed:

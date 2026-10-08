@@ -90,7 +90,7 @@ Semua opsional. Salin `.env.example` menjadi `.env` lalu ubah yang diperlukan.
 - **SQLite** (bawaan): file `quizdb.db`, tanpa instalasi. Jika PostgreSQL tidak terjangkau, aplikasi otomatis memakai SQLite.
 - **PostgreSQL** (opsional): isi `DATABASE_URL`. Database dibuat otomatis jika belum ada.
 - Semua waktu disimpan dalam **UTC** dan ditampilkan sesuai zona waktu perangkat.
-- Database lama otomatis dimigrasi saat server start (menambah kolom `rooms.started_at` dan `participants.token`).
+- Database lama otomatis dimigrasi saat server start (menambah kolom `rooms.started_at` dan `participants.token`, serta `questions.level`, `rooms.question_mode`, `rooms.level_counts` dan tabel `participant_questions` untuk level soal & soal acak per peserta). Data lama tetap utuh: soal lama berlevel Normal dan room lama tetap "sama untuk semua peserta".
 
 > `quizdb.db` ikut ter-commit di repositori ini dan berisi akun + soal Anda. Sebaiknya jangan dibagikan; lepaskan
 > dari Git dengan `git rm --cached quizdb.db` lalu tambahkan `quizdb.db` ke `.gitignore`.

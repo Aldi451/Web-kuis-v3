@@ -1,4 +1,4 @@
-// js/host.js - Dashboard Host: buat kuis, waiting room (QR), monitoring realtime, riwayat & laporan PDF
+// js/host.js - Dashboard Host: buat kuis (soal acak per level), waiting room (QR), monitoring realtime, riwayat & laporan PDF
 //
 // Catatan untuk Host yang memakai HP:
 //   * room aktif disimpan & dipulihkan otomatis saat halaman di-refresh / browser ditutup
@@ -17,6 +17,8 @@ let countdownTimer = null;
 let hostClockOffsetMs = 0;
 let timeUpAnnounced = false;
 const ACTIVE_ROOM_KEY = 'host_active_room';
+// Level yang jumlahnya sudah diubah Host secara manual (yang belum diubah mengikuti saran otomatis)
+const countTouched = { easy: false, normal: false, hard: false };
 
 function setText(id, value) {
   const node = $(id);
@@ -60,6 +62,18 @@ document.addEventListener('DOMContentLoaded', () => {
     renderJoinInfo();
   });
 
+  // Kartu "Pembagian Soal ke Peserta": mode acak/sama + jumlah soal per level
+  document.querySelectorAll('input[name="quiz-question-mode"]').forEach((radio) => {
+    radio.addEventListener('change', refreshQuestionSetCard);
+  });
+  window.Levels.order.forEach((level) => {
+    $(`count-${level}`).addEventListener('input', () => {
+      countTouched[level] = true;
+      refreshQuestionSetCard();
+    });
+  });
+  refreshQuestionSetCard();
+
   // Pilih semua soal / kosongkan (berguna di HP: tidak perlu mengetuk puluhan checkbox)
   $('btn-select-all-questions').addEventListener('click', () => setAllQuestionsSelected(true));
   $('btn-clear-questions').addEventListener('click', () => setAllQuestionsSelected(false));
@@ -95,6 +109,124 @@ function switchTab(tabId) {
 
 // ───────────────────────── Buat kuis ─────────────────────────
 
+// ── Kartu "Pembagian Soal ke Peserta" ──
+// Soal yang dicentang = bahan soal. Mode "acak": Host menentukan berapa soal per level (Easy/Normal/Hard) untuk
+// SETIAP peserta; server mengundi kombinasi berbeda untuk tiap peserta yang scan QR dan bergabung.
+
+// Dipanggil question-bank.js setiap pilihan soal berubah
+window.onQuizSelectionChanged = refreshQuestionSetCard;
+
+function selectedQuestionMode() {
+  const checked = document.querySelector('input[name="quiz-question-mode"]:checked');
+  return checked ? checked.value : 'random';
+}
+
+// Jumlah soal terpilih per level
+function levelAvailability() {
+  const available = { easy: 0, normal: 0, hard: 0 };
+  getSelectedQuestions().forEach((q) => { available[window.Levels.normalize(q.level)] += 1; });
+  return available;
+}
+
+function readLevelCounts() {
+  const counts = {};
+  window.Levels.order.forEach((level) => {
+    const value = parseInt($(`count-${level}`).value, 10);
+    counts[level] = Number.isFinite(value) && value > 0 ? value : 0;
+  });
+  return counts;
+}
+
+function sumCounts(counts) {
+  return window.Levels.order.reduce((total, level) => total + (counts[level] || 0), 0);
+}
+
+// C(n, k) - dibatasi 1 miliar karena hanya dipakai untuk memperkirakan variasi soal antar peserta
+function combinations(n, k) {
+  if (k < 0 || k > n) return 0;
+  const m = Math.min(k, n - k);
+  let result = 1;
+  for (let i = 1; i <= m; i++) {
+    result = (result * (n - m + i)) / i;
+    if (result > 1e9) return 1e9;
+  }
+  return Math.round(result);
+}
+
+// Berapa kombinasi soal berbeda yang mungkin untuk satu peserta
+function countCombinations(available, counts) {
+  let total = 1;
+  window.Levels.order.forEach((level) => {
+    total *= combinations(available[level], counts[level]);
+    if (total > 1e9) total = 1e9;
+  });
+  return total;
+}
+
+function refreshQuestionSetCard() {
+  const panel = $('level-count-panel');
+  if (!panel) return;
+  const random = selectedQuestionMode() === 'random';
+  panel.classList.toggle('hidden', !random);
+
+  const available = levelAvailability();
+  window.Levels.order.forEach((level) => {
+    const input = $(`count-${level}`);
+    const max = available[level];
+    input.max = String(max);
+    input.disabled = max === 0;
+    if (max === 0) {
+      input.value = '0';
+    } else if (!countTouched[level]) {
+      input.value = String(Math.ceil(max / 2)); // saran awal: separuh soal tiap level, supaya soal antar peserta berbeda
+    } else if (input.value !== '') {
+      const typed = parseInt(input.value, 10);
+      const clamped = Math.min(Math.max(Number.isFinite(typed) ? typed : 0, 0), max);
+      if (String(clamped) !== input.value) input.value = String(clamped);
+    }
+    setText(`avail-${level}`, `dari ${max} soal`);
+  });
+  renderQuestionSetSummary(random, available);
+}
+
+function renderQuestionSetSummary(random, available) {
+  const box = $('quiz-set-summary');
+  const selected = sumCounts(available);
+  let tone = '';
+  let text;
+
+  if (selected === 0) {
+    text = 'Belum ada soal terpilih. Centang soal pada daftar di atas.';
+  } else if (!random) {
+    text = `Semua peserta mengerjakan ${selected} soal terpilih dengan urutan yang sama.`;
+  } else {
+    const counts = readLevelCounts();
+    const perPerson = sumCounts(counts);
+    if (perPerson === 0) {
+      text = 'Isi jumlah soal minimal pada satu level.';
+      tone = 'is-error';
+    } else {
+      const combos = countCombinations(available, counts);
+      let variety;
+      if (combos <= 1) {
+        variety = 'Semua peserta akan mendapat soal yang SAMA (hanya urutannya diacak). Kurangi jumlah per level atau centang lebih banyak soal agar soal tiap peserta berbeda.';
+        tone = 'is-warning';
+      } else if (combos < 50) {
+        variety = `Variasi terbatas: hanya ${combos} kombinasi soal yang berbeda.`;
+        tone = 'is-warning';
+      } else {
+        variety = combos >= 1e9
+          ? 'Variasi sangat tinggi: soal tiap peserta hampir pasti berbeda.'
+          : `Variasi tinggi: ${combos.toLocaleString('id-ID')} kombinasi soal yang berbeda.`;
+      }
+      text = `Tiap peserta mengerjakan ${perPerson} soal (${window.Levels.countsText(counts)}), diacak dari ${selected} soal terpilih. ${variety}`;
+    }
+  }
+  box.textContent = text;
+  box.classList.remove('is-warning', 'is-error');
+  if (tone) box.classList.add(tone);
+}
+
 // Create Quiz Room Action
 async function createQuizRoom() {
   const name = $('quiz-name').value.trim();
@@ -115,6 +247,24 @@ async function createQuizRoom() {
     return;
   }
 
+  // Mode acak: jumlah per level harus terisi dan tidak melebihi soal terpilih di level itu
+  const questionMode = selectedQuestionMode();
+  let levelCounts = null;
+  if (questionMode === 'random') {
+    levelCounts = readLevelCounts();
+    const available = levelAvailability();
+    if (sumCounts(levelCounts) < 1) {
+      window.UI.alert('Mode acak: isi jumlah soal per peserta minimal pada satu level (Easy / Normal / Hard).');
+      return;
+    }
+    const tooMany = window.Levels.order.find((level) => levelCounts[level] > available[level]);
+    if (tooMany) {
+      window.UI.alert(`Soal ${window.Levels.label(tooMany)} yang Anda centang hanya ${available[tooMany]}, ` +
+        `tetapi jumlah per peserta diisi ${levelCounts[tooMany]}. Centang lebih banyak soal ${window.Levels.label(tooMany)} atau kurangi jumlahnya.`);
+      return;
+    }
+  }
+
   const buttons = [$('btn-generate-quiz'), $('btn-generate-quiz-bottom')];
   buttons.forEach((button) => window.UI.setBusy(button, true, 'Membuat room...'));
 
@@ -125,6 +275,8 @@ async function createQuizRoom() {
       duration: duration,
       passing_grade: passingGrade,
       question_ids: questionIds,
+      question_mode: questionMode,
+      level_counts: levelCounts,
       created_by: window.Auth.getCurrentUser().username
     });
     await activateRoom(room);
@@ -176,6 +328,7 @@ function clearActiveRoom() {
   setText('wait-quiz-title', 'Pilih/Buat Kuis Terlebih Dahulu');
   setText('wait-room-code', '-');
   setText('wait-quiz-status', 'STATUS : WAITING FOR START...');
+  setText('wait-quiz-config', '');
   $('wait-qrcode').textContent = 'QR Code';
   $('join-box').classList.add('hidden');
   $('btn-start-quiz').disabled = true;
@@ -191,6 +344,7 @@ function renderRoomHeader(room) {
   // Render Waiting Room Details
   setText('wait-quiz-title', room.quiz_name);
   setText('wait-room-code', room.room_code);
+  setText('wait-quiz-config', `Soal: ${window.Levels.describeRoomSet(room)}`);
   setText('monitor-room-info', `Kuis: ${room.quiz_name} | Kode: ${room.room_code}`);
 
   const startBtn = $('btn-start-quiz');
@@ -648,6 +802,7 @@ async function selectHistoryRoom(room) {
     setText('report-total-participants', participants.length);
     setText('report-time-duration', `${room.duration_minutes} Menit`);
     setText('report-initiator', room.created_by || 'Host');
+    setText('report-question-set', window.Levels.describeRoomSet(room));
 
     const tbody = $('report-participants-tbody');
     tbody.innerHTML = '';

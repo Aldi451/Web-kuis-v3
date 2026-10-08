@@ -11,7 +11,7 @@ const SESSION_KEY = 'client_session_v2';
 const $ = (id) => document.getElementById(id);
 
 let clientRoom = null;
-let clientParticipant = null;   // { id, participant_name, department, token }
+let clientParticipant = null;   // { id, participant_name, department, token, question_ids }
 let clientQuestions = [];
 let userAnswers = {};           // { questionId: 'A' | 'teks essay' }
 let currentQuestionIndex = 0;
@@ -73,6 +73,15 @@ const Session = {
       .forEach((key) => localStorage.removeItem(key));
   }
 };
+
+// ID soal yang harus dikerjakan peserta INI, berurutan. Room acak: hasil undian khusus peserta (dari respons join,
+// berbeda tiap peserta). Room biasa / server lama: seluruh soal room.
+function myQuestionIds() {
+  if (clientParticipant && Array.isArray(clientParticipant.question_ids) && clientParticipant.question_ids.length) {
+    return clientParticipant.question_ids;
+  }
+  return (clientRoom && clientRoom.question_ids) || [];
+}
 
 function flushProgress() {
   clearTimeout(persistTimer);
@@ -232,19 +241,24 @@ async function initializeClientSession(roomCode, name, department) {
     id: joined.id,
     participant_name: joined.participant_name,
     department: joined.department,
-    token: joined.token
+    token: joined.token,
+    question_ids: Array.isArray(joined.question_ids) ? joined.question_ids : null
   };
   const resumedSaved = joined.resumed && saved;
   userAnswers = (resumedSaved && saved.answers) || {};
   currentQuestionIndex = resumedSaved && Number.isInteger(saved.qIndex) ? saved.qIndex : 0;
-  Session.begin(sessionKey, {
+  const sessionData = {
     participantId: joined.id,
     token: joined.token,
     answers: userAnswers,
     qIndex: currentQuestionIndex
-  });
+  };
+  // Peserta baru = undian soal baru: buang cache soal milik peserta sebelumnya (nama sama, room sama)
+  if (!joined.resumed) sessionData.questions = null;
+  Session.begin(sessionKey, sessionData);
   console.log('Registered participant:', clientParticipant, joined.resumed ? '(melanjutkan sesi)' : '');
   $('client-wait-me').textContent = `${clientParticipant.participant_name} • ${clientParticipant.department}`;
+  showQuestionSetInfo();
 
   bindLifecycleOnce();
 
@@ -274,6 +288,17 @@ async function initializeClientSession(roomCode, name, department) {
   } else {
     setWaitStatus('Waiting Host to Start Quiz...');
   }
+}
+
+// Waiting room: beri tahu peserta berapa soalnya (dan bahwa soal diacak khusus untuknya)
+function showQuestionSetInfo() {
+  const box = $('client-wait-set');
+  const total = myQuestionIds().length;
+  if (!box || !total) return;
+  box.textContent = clientRoom.question_mode === 'random'
+    ? `Soal diacak khusus untukmu: ${total} soal (${window.Levels.countsText(clientRoom.level_counts)})`
+    : `Jumlah soal: ${total}`;
+  box.classList.remove('hidden');
 }
 
 function leaveWithMessage(message) {
@@ -458,7 +483,10 @@ async function loadQuestions(ids) {
   }
   // Server tidak terjangkau: pakai soal yang tersimpan dari pemuatan sebelumnya (refresh saat sinyal hilang)
   const cached = Session.forKey(sessionKey);
-  if (cached && Array.isArray(cached.questions) && cached.questions.length) return cached.questions;
+  if (cached && Array.isArray(cached.questions) && cached.questions.length === ids.length &&
+      cached.questions.every((q, i) => q.id === ids[i])) {
+    return cached.questions;
+  }
   throw lastError;
 }
 
@@ -479,8 +507,8 @@ function computeDeadlineMs() {
 async function startActiveQuiz() {
   if (!clientRoom || quizStarted || quizFinished) return;
 
-  // 1. Fetch questions using room.question_ids array
-  const qIds = clientRoom.question_ids;
+  // 1. Ambil soal milik peserta ini (room acak: soal hasil undian, bukan seluruh pool room)
+  const qIds = myQuestionIds();
   if (!qIds || qIds.length === 0) {
     window.UI.alert('Room kuis ini tidak memiliki soal!');
     return;
@@ -564,6 +592,9 @@ function renderQuestion(index) {
   $('quiz-progress-text').textContent = `Soal ${index + 1} dari ${clientQuestions.length}`;
   $('quiz-active-title').textContent = clientRoom.quiz_name;
   $('quiz-question-text').textContent = q.question_text;
+  const levelBox = $('quiz-level-badge');
+  levelBox.innerHTML = window.Levels.badge(q.level);
+  levelBox.classList.remove('hidden');
 
   const qType = q.question_type || 'mcq';
   const mcqContainer = $('client-mcq-container');
@@ -694,10 +725,10 @@ function lockQuizUI(locked) {
   document.querySelectorAll('.option-btn, .q-chip').forEach((button) => { button.disabled = locked; });
 }
 
-// Semua soal room dikirim (yang kosong dihitung salah oleh server). Berdasarkan userAnswers, jadi tetap
+// Semua soal milik peserta ini dikirim (yang kosong dihitung salah oleh server). Berdasarkan userAnswers, jadi tetap
 // bisa dikirim walau halaman baru dibuka ulang dan daftar soal belum sempat dimuat.
 function buildAnswerPayload() {
-  const questionIds = clientQuestions.length ? clientQuestions.map((q) => q.id) : (clientRoom.question_ids || []);
+  const questionIds = clientQuestions.length ? clientQuestions.map((q) => q.id) : myQuestionIds();
   return questionIds.map((qid) => ({
     room_id: clientRoom.id,
     participant_name: clientParticipant.participant_name,
@@ -797,9 +828,10 @@ async function onSubmitSuccess(result) {
 
 // Review soal membutuhkan teks soal & pilihan; setelah refresh daftar soal harus dimuat ulang
 async function ensureQuestionsLoaded() {
-  if (clientQuestions.length > 0 || !clientRoom || !clientRoom.question_ids) return;
+  const ids = myQuestionIds();
+  if (clientQuestions.length > 0 || !clientRoom || ids.length === 0) return;
   try {
-    clientQuestions = await window.API.getQuestions(clientRoom.question_ids);
+    clientQuestions = await window.API.getQuestions(ids);
   } catch (err) {
     console.error('Gagal memuat soal untuk review:', err);
   }

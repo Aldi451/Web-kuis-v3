@@ -27,6 +27,7 @@
       <span class="text-xs text-indigo-400 font-bold uppercase tracking-wider block mb-2">Kamu Terdaftar</span>
       <h1 class="text-3xl font-extrabold mb-1" id="client-wait-quiz-title">Loading Quiz Name...</h1>
       <p class="text-sm text-gray-400" id="client-wait-me"></p>
+      <p class="text-sm text-gray-400 mt-2 hidden" id="client-wait-set"></p>
 
       <div class="room-code-card">
         <span class="text-xs text-gray-500 font-bold tracking-wider">ROOM CODE</span>
@@ -69,6 +70,8 @@
       <div class="quiz-progress-track" aria-hidden="true"><div id="quiz-progress-bar" class="quiz-progress-fill"></div></div>
 
       <div class="quiz-card glass-panel">
+        <!-- Level soal (easy / normal / hard) -->
+        <div id="quiz-level-badge" class="quiz-meta hidden"></div>
         <!-- Question Text -->
         <p class="quiz-question" id="quiz-question-text">Loading Question...</p>
 
@@ -149,6 +152,9 @@
             <div class="text-lg font-bold text-red-400" id="result-stat-incorrect">0</div>
           </div>
         </div>
+
+        <!-- Rekap benar/total per level (hanya level yang ada di soal peserta ini) -->
+        <div id="result-level-breakdown" class="level-breakdown hidden" aria-label="Hasil per level"></div>
 
         <p class="form-hint mb-4">Peringkat diperbarui otomatis saat peserta lain selesai.</p>
 

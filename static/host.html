@@ -63,11 +63,21 @@
 
       <div class="glass-panel p-6">
         <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
-          <span class="text-sm text-gray-400 font-medium">Filter Kategori:</span>
-          <select id="question-category-filter" class="input-field py-1 px-3" style="width: 100%; max-width: 220px; min-height: 42px;">
-            <option value="All">Semua Kategori</option>
-          </select>
+          <span class="text-sm text-gray-400 font-medium">Filter:</span>
+          <div class="filter-row">
+            <select id="question-category-filter" class="input-field py-1 px-3" aria-label="Filter kategori">
+              <option value="All">Semua Kategori</option>
+            </select>
+            <select id="question-level-filter" class="input-field py-1 px-3" aria-label="Filter level">
+              <option value="All">Semua Level</option>
+              <option value="easy">Easy</option>
+              <option value="normal">Normal</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
         </div>
+        <!-- Rekap jumlah soal per level di seluruh bank soal -->
+        <div id="question-level-summary" class="level-summary mb-4" aria-label="Jumlah soal per level"></div>
 
         <div class="overflow-x-auto">
           <table class="custom-table responsive-table w-full">
@@ -75,13 +85,14 @@
               <tr>
                 <th>Pertanyaan</th>
                 <th>Kategori</th>
+                <th>Level</th>
                 <th>Kunci Jawaban</th>
                 <th class="text-right">Aksi</th>
               </tr>
             </thead>
             <tbody id="question-bank-tbody">
               <tr>
-                <td colspan="4" class="text-center text-gray-500 py-4">Memuat data soal...</td>
+                <td colspan="5" class="text-center text-gray-500 py-4">Memuat data soal...</td>
               </tr>
             </tbody>
           </table>
@@ -115,6 +126,15 @@
               <option value="All">Semua Kategori</option>
             </select>
           </div>
+          <div>
+            <label class="text-xs text-gray-400 font-bold" for="quiz-level-select">LEVEL SOAL (FILTER DAFTAR)</label>
+            <select id="quiz-level-select" class="input-field mt-1" style="background-color: #0f172a;">
+              <option value="All">Semua Level</option>
+              <option value="easy">Easy</option>
+              <option value="normal">Normal</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
           <button id="btn-generate-quiz" class="btn btn-primary w-full mt-2">Generate Room &amp; Kuis</button>
         </div>
 
@@ -132,6 +152,52 @@
             <!-- Questions to select from -->
             <p class="text-gray-500 text-sm">Memuat daftar soal...</p>
           </div>
+
+          <!-- Cara soal dibagikan: acak berbeda per peserta (berdasarkan level) atau sama untuk semua -->
+          <div id="question-set-card" class="set-card">
+            <h4 class="set-card-title">Pembagian Soal ke Peserta</h4>
+            <p class="form-hint">Soal yang dicentang di atas menjadi bahan soal. Tentukan cara membagikannya ke peserta yang scan QR.</p>
+
+            <div class="mode-options" role="radiogroup" aria-label="Cara pembagian soal">
+              <label class="mode-option">
+                <input type="radio" name="quiz-question-mode" id="mode-random" value="random" checked>
+                <span class="mode-body">
+                  <strong>Acak berbeda untuk tiap peserta</strong>
+                  <small>Setiap peserta mendapat kombinasi soal sendiri, diambil acak dari soal terpilih sesuai jumlah per level.</small>
+                </span>
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="quiz-question-mode" id="mode-fixed" value="fixed">
+                <span class="mode-body">
+                  <strong>Sama untuk semua peserta</strong>
+                  <small>Semua soal terpilih dikerjakan semua peserta dengan urutan yang sama.</small>
+                </span>
+              </label>
+            </div>
+
+            <div id="level-count-panel" class="level-count-panel">
+              <div class="field-label">JUMLAH SOAL PER PESERTA, PER LEVEL</div>
+              <div class="level-count-grid">
+                <div class="level-count">
+                  <label for="count-easy"><span class="badge badge-level badge-level-easy"><span class="level-meter" aria-hidden="true"><i class="on"></i><i></i><i></i></span>Easy</span></label>
+                  <input type="number" id="count-easy" class="input-field" min="0" value="0" inputmode="numeric">
+                  <span class="level-count-avail" id="avail-easy">dari 0 soal</span>
+                </div>
+                <div class="level-count">
+                  <label for="count-normal"><span class="badge badge-level badge-level-normal"><span class="level-meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span>Normal</span></label>
+                  <input type="number" id="count-normal" class="input-field" min="0" value="0" inputmode="numeric">
+                  <span class="level-count-avail" id="avail-normal">dari 0 soal</span>
+                </div>
+                <div class="level-count">
+                  <label for="count-hard"><span class="badge badge-level badge-level-hard"><span class="level-meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span>Hard</span></label>
+                  <input type="number" id="count-hard" class="input-field" min="0" value="0" inputmode="numeric">
+                  <span class="level-count-avail" id="avail-hard">dari 0 soal</span>
+                </div>
+              </div>
+            </div>
+            <p id="quiz-set-summary" class="set-summary" role="status"></p>
+          </div>
+
           <!-- Tombol kedua di bawah daftar: di HP pengguna tidak perlu menggulir kembali ke atas -->
           <button type="button" id="btn-generate-quiz-bottom" class="btn btn-primary w-full mt-4 lg:hidden">Generate Room &amp; Kuis</button>
         </div>
@@ -148,7 +214,8 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="glass-panel p-6 flex flex-col items-center justify-center text-center">
           <h3 class="text-lg font-bold mb-1" id="wait-quiz-title">Pilih/Buat Kuis Terlebih Dahulu</h3>
-          <p class="text-xs text-orange-400 font-semibold mb-6 uppercase" id="wait-quiz-status">STATUS : WAITING FOR START...</p>
+          <p class="text-xs text-orange-400 font-semibold mb-2 uppercase" id="wait-quiz-status">STATUS : WAITING FOR START...</p>
+          <p class="text-xs text-gray-400 mb-6" id="wait-quiz-config"></p>
 
           <!-- Room Code Card -->
           <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6 w-full max-w-xs">
@@ -326,6 +393,10 @@
                 <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Project / Quiz Name</span>
                 <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-quiz-name">-</div>
               </div>
+              <div style="border-bottom: 1.5px solid #0056b3; padding-bottom: 4px; grid-column: span 2;">
+                <span style="font-size: 9px; font-weight: 700; color: #0056b3; text-transform: uppercase;">Question Set</span>
+                <div style="font-size: 12px; font-weight: 800; color: #111827; margin-top: 2px;" id="report-question-set">-</div>
+              </div>
             </div>
 
             <div style="border-top: 1.5px solid #4b5563; border-bottom: 1.5px solid #4b5563; py: 16px; margin-bottom: 24px; padding: 12px 0;">
@@ -428,6 +499,16 @@
             <label class="text-xs text-gray-400 font-bold">KATEGORI</label>
             <input type="text" id="question-category" class="input-field mt-1" placeholder="Contoh: K3, HRD, dll." required>
           </div>
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-400 font-bold" for="question-level">LEVEL SOAL</label>
+          <select id="question-level" class="input-field mt-1" style="background-color: #0f172a;">
+            <option value="easy">Easy (mudah)</option>
+            <option value="normal" selected>Normal (sedang)</option>
+            <option value="hard">Hard (sulit)</option>
+          </select>
+          <p class="form-hint mt-1">Level dipakai untuk mengacak soal tiap peserta saat Anda membuat kuis.</p>
         </div>
 
         <div class="grid grid-cols-1 gap-4">

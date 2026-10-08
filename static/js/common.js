@@ -215,6 +215,50 @@
   }
   document.addEventListener('DOMContentLoaded', showFlash);
 
+  // ---------- Level soal (easy / normal / hard) ----------
+  // Level ditentukan Host/Admin di Bank Soal. Badge memakai meter 3 titik (1 / 2 / 3 terisi) selain warna,
+  // supaya tingkat kesulitan tetap terbaca oleh yang sulit membedakan warna dan tidak mirip badge BENAR/SALAH.
+  // Titik digambar dengan CSS (bukan karakter ●○) karena tidak semua font di HP/PC punya glyph itu.
+  const LEVEL_ORDER = ['easy', 'normal', 'hard'];
+  const LEVEL_LABEL = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+  const LEVEL_DOTS = { easy: 1, normal: 2, hard: 3 };
+
+  function normalizeLevel(value) {
+    const key = String(value || '').trim().toLowerCase();
+    return LEVEL_LABEL[key] ? key : 'normal';
+  }
+
+  function levelBadge(level) {
+    const key = normalizeLevel(level);
+    const dots = [1, 2, 3].map((n) => (n <= LEVEL_DOTS[key] ? '<i class="on"></i>' : '<i></i>')).join('');
+    return `<span class="badge badge-level badge-level-${key}" title="Level ${LEVEL_LABEL[key]}">` +
+      `<span class="level-meter" aria-hidden="true">${dots}</span>${LEVEL_LABEL[key]}</span>`;
+  }
+
+  // {easy: 2, normal: 0, hard: 1} -> "2 Easy + 1 Hard"
+  function levelCountsText(counts) {
+    const parts = LEVEL_ORDER
+      .filter((key) => counts && Number(counts[key]) > 0)
+      .map((key) => `${Number(counts[key])} ${LEVEL_LABEL[key]}`);
+    return parts.join(' + ');
+  }
+
+  // Ringkasan cara soal dibagikan di sebuah room (untuk Host)
+  function describeRoomSet(room) {
+    if (!room) return '';
+    const perPerson = Number(room.questions_per_participant) || (room.question_ids || []).length;
+    if (room.question_mode === 'random' && room.level_counts) {
+      const pool = (room.question_ids || []).length;
+      return `Acak berbeda per peserta: ${levelCountsText(room.level_counts)} = ${perPerson} soal/peserta (dari ${pool} soal terpilih)`;
+    }
+    return `Sama untuk semua peserta: ${perPerson} soal`;
+  }
+
+  window.Levels = {
+    order: LEVEL_ORDER, label: (level) => LEVEL_LABEL[normalizeLevel(level)],
+    normalize: normalizeLevel, badge: levelBadge, countsText: levelCountsText, describeRoomSet,
+  };
+
   window.UI = {
     escapeHTML, toast, dialog, closeAllDialogs,
     alert: alertDialog, confirm: confirmDialog,

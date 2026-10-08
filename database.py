@@ -13,6 +13,7 @@ Aturan yang dipakai di seluruh file ini:
 """
 
 import json
+import math
 import os
 import random
 import re
@@ -62,6 +63,17 @@ SQLITE_FILE = _resolve_sqlite_path()
 ROOM_STATUSES = ("Waiting", "On Progress", "Finished")
 USER_ROLES = ("Admin", "Host")
 
+# Level soal ditentukan oleh Host/Admin saat membuat soal (urutan tuple = urutan tampil, mudah -> sulit).
+QUESTION_LEVELS = ("easy", "normal", "hard")
+DEFAULT_LEVEL = "normal"
+LEVEL_LABELS = {"easy": "Easy", "normal": "Normal", "hard": "Hard"}
+
+# Cara soal dibagikan ke peserta (dipilih Host saat membuat room):
+#   fixed  = semua peserta mengerjakan soal yang sama (perilaku lama)
+#   random = tiap peserta yang bergabung mendapat soal ACAK yang berbeda; jumlah soal per level
+#            ditentukan Host (mis. 3 easy + 3 normal + 2 hard), diambil dari soal yang dipilih untuk room
+QUESTION_MODES = ("fixed", "random")
+
 MAX_NAME_LENGTH = 60
 
 if HAS_PSYCOPG2:
@@ -71,6 +83,9 @@ else:
         pass
 
 UNIQUE_ERRORS = (UniqueViolationException, sqlite3.IntegrityError)
+
+# Pengacak soal memakai sumber acak sistem operasi: tidak bisa ditebak dan tidak saling mempengaruhi antar peserta.
+_rng = random.SystemRandom()
 
 
 def _log(message: str):
@@ -301,7 +316,9 @@ SCHEMA_STATEMENTS = [
         passing_grade INTEGER NOT NULL DEFAULT 70,
         status TEXT NOT NULL DEFAULT 'Waiting',
         created_by TEXT DEFAULT 'Host',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        question_mode TEXT NOT NULL DEFAULT 'fixed',
+        level_counts TEXT
     )
     """,
     # Bank soal permanen
@@ -316,7 +333,8 @@ SCHEMA_STATEMENTS = [
         correct_answer TEXT NOT NULL,
         category TEXT DEFAULT 'Umum',
         question_type TEXT DEFAULT 'mcq',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        level TEXT NOT NULL DEFAULT 'normal'
     )
     """,
     # many-to-many: room -> questions
@@ -339,6 +357,15 @@ SCHEMA_STATEMENTS = [
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         submitted_at TIMESTAMP,
         UNIQUE(room_id, name)
+    )
+    """,
+    # Soal yang DITUGASKAN ke tiap peserta. Hanya terisi untuk room mode "random"; room "fixed" memakai room_questions.
+    """
+    CREATE TABLE IF NOT EXISTS participant_questions (
+        participant_id INTEGER NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+        question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        sort_order INTEGER DEFAULT 0,
+        PRIMARY KEY (participant_id, question_id)
     )
     """,
     """
@@ -377,6 +404,11 @@ def init_db():
             _ensure_column(cursor, "questions", "question_type", "TEXT DEFAULT 'mcq'")
             _ensure_column(cursor, "rooms", "started_at", "TIMESTAMP")      # dasar timer server
             _ensure_column(cursor, "participants", "token", "TEXT")         # kunci "lanjutkan sesi" di HP
+            # Level soal & mode room. Soal/room lama otomatis menjadi level "normal" dan mode "fixed",
+            # jadi perilaku data lama tidak berubah.
+            _ensure_column(cursor, "questions", "level", "TEXT NOT NULL DEFAULT 'normal'")
+            _ensure_column(cursor, "rooms", "question_mode", "TEXT NOT NULL DEFAULT 'fixed'")
+            _ensure_column(cursor, "rooms", "level_counts", "TEXT")
 
             cursor.execute(
                 """
@@ -389,6 +421,90 @@ def init_db():
     except Exception as e:
         _log(f"[DB] Error initializing database: {e}")
         raise
+
+
+# ─────────────────────────────────────────────
+# LEVEL SOAL & MODE ROOM
+# ─────────────────────────────────────────────
+
+def normalize_level(value, default=DEFAULT_LEVEL):
+    """'Hard' / ' hard ' -> 'hard'. Kosong/None -> default. Nilai lain -> ValueError."""
+    if value is None or str(value).strip() == "":
+        return default
+    level = str(value).strip().lower()
+    if level not in QUESTION_LEVELS:
+        raise ValueError(f"Level soal tidak valid. Gunakan: {', '.join(QUESTION_LEVELS)}.")
+    return level
+
+
+def normalize_question_mode(value) -> str:
+    mode = str(value or "fixed").strip().lower()
+    if mode not in QUESTION_MODES:
+        raise ValueError(f"Mode soal tidak valid. Gunakan: {', '.join(QUESTION_MODES)}.")
+    return mode
+
+
+def normalize_level_counts(raw) -> dict:
+    """
+    Jumlah soal PER PESERTA untuk tiap level (mode "random"), mis. {"easy": 3, "hard": 2}.
+    Hasil selalu lengkap: {"easy": n, "normal": n, "hard": n}. Raise ValueError jika tidak valid.
+    """
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("Jumlah soal per level wajib diisi untuk mode acak.")
+    unknown = [str(key) for key in raw if key not in QUESTION_LEVELS]
+    if unknown:
+        raise ValueError(f"Level tidak dikenal: {', '.join(unknown)}. Gunakan: {', '.join(QUESTION_LEVELS)}.")
+    counts = {}
+    for level in QUESTION_LEVELS:
+        value = raw.get(level, 0)
+        if value is None:
+            value = 0
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"Jumlah soal level {LEVEL_LABELS[level]} harus berupa bilangan bulat 0 atau lebih.")
+        counts[level] = value
+    if sum(counts.values()) < 1:
+        raise ValueError("Jumlah soal per peserta minimal 1. Isi jumlah pada salah satu level.")
+    return counts
+
+
+def parse_level_counts(raw) -> dict:
+    """Baca kolom rooms.level_counts (teks JSON) -> {"easy": n, "normal": n, "hard": n}; tidak valid -> semuanya 0."""
+    data = raw
+    if not isinstance(data, dict):
+        try:
+            data = json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    counts = {}
+    for level in QUESTION_LEVELS:
+        try:
+            counts[level] = max(0, int(data.get(level) or 0))
+        except (TypeError, ValueError):
+            counts[level] = 0
+    return counts
+
+
+def questions_per_participant(room: dict) -> int:
+    """Banyak soal yang dikerjakan SETIAP peserta di room ini (room dengan 'question_ids' sudah terpasang)."""
+    if (room.get("question_mode") or "fixed") == "random":
+        return sum(parse_level_counts(room.get("level_counts")).values())
+    return len(room.get("question_ids") or [])
+
+
+def _check_pool_supports(counts: dict, levels_in_pool: list):
+    """Pastikan soal terpilih cukup untuk jumlah per level yang diminta Host (tiap peserta mengambil dari pool ini)."""
+    available = {level: 0 for level in QUESTION_LEVELS}
+    for level in levels_in_pool:
+        available[level if level in available else DEFAULT_LEVEL] += 1
+    for level in QUESTION_LEVELS:
+        if counts[level] > available[level]:
+            raise ValueError(
+                f"Soal level {LEVEL_LABELS[level]} yang dipilih hanya {available[level]}, "
+                f"tetapi diminta {counts[level]} per peserta. Pilih lebih banyak soal {LEVEL_LABELS[level]} "
+                "atau kurangi jumlahnya."
+            )
 
 
 # ─────────────────────────────────────────────
@@ -405,30 +521,41 @@ def generate_room_code():
                 return code
 
 
-def create_room(title: str, duration: int, question_ids: list, passing_grade: int = 70, created_by: str = "Host"):
+def create_room(title: str, duration: int, question_ids: list, passing_grade: int = 70, created_by: str = "Host",
+                question_mode: str = "fixed", level_counts: dict = None):
     """
     Membuat room baru dengan soal-soal dari question bank.
-    question_ids: list[int] - ID soal dari tabel questions.
-    Raise ValueError jika soal kosong / ada soal yang tidak ditemukan.
+    question_ids: list[int] - ID soal dari tabel questions (untuk mode "random" ini adalah POOL soal).
+    question_mode:
+      "fixed"  - semua peserta mengerjakan semua soal terpilih (perilaku lama)
+      "random" - tiap peserta mendapat soal acak yang berbeda sesuai level_counts, mis.
+                 {"easy": 3, "normal": 3, "hard": 2} = 3 soal easy + 3 normal + 2 hard per peserta.
+    Raise ValueError jika soal kosong / ada soal yang tidak ditemukan / jumlah per level melebihi soal yang dipilih.
     """
     ids = list(dict.fromkeys(int(q) for q in question_ids))  # hapus duplikat, urutan dipertahankan
     if not ids:
         raise ValueError("Pilih minimal 1 soal.")
+    mode = normalize_question_mode(question_mode)
+    counts = normalize_level_counts(level_counts) if mode == "random" else None
 
     for _ in range(10):  # ulangi jika (sangat jarang) kode bentrok
         code = generate_room_code()
         try:
             with _transaction() as cursor:
-                cursor.execute(f"SELECT id FROM questions WHERE id IN ({_placeholders(len(ids))})", ids)
-                found = {row["id"] for row in cursor.fetchall()}
+                cursor.execute(f"SELECT id, level FROM questions WHERE id IN ({_placeholders(len(ids))})", ids)
+                pool = cursor.fetchall()
+                found = {row["id"] for row in pool}
                 missing = [i for i in ids if i not in found]
                 if missing:
                     raise ValueError(f"Soal tidak ditemukan: {', '.join(map(str, missing))}")
+                if counts is not None:
+                    _check_pool_supports(counts, [row["level"] for row in pool])
 
                 cursor.execute(
-                    "INSERT INTO rooms (id, title, duration, passing_grade, status, created_by, created_at) "
-                    "VALUES (%s, %s, %s, %s, 'Waiting', %s, %s)",
-                    (code, title, duration, passing_grade, created_by, utcnow()),
+                    "INSERT INTO rooms (id, title, duration, passing_grade, status, created_by, created_at, "
+                    "question_mode, level_counts) VALUES (%s, %s, %s, %s, 'Waiting', %s, %s, %s, %s)",
+                    (code, title, duration, passing_grade, created_by, utcnow(), mode,
+                     json.dumps(counts) if counts is not None else None),
                 )
                 for order, q_id in enumerate(ids):
                     cursor.execute(
@@ -547,7 +674,7 @@ def get_questions_by_room(room_id: str):
         cursor.execute(
             """
             SELECT q.id, q.question_text, q.option_a, q.option_b, q.option_c, q.option_d,
-                   q.category, q.question_type
+                   q.category, q.question_type, q.level
             FROM questions q
             JOIN room_questions rq ON q.id = rq.question_id
             WHERE rq.room_id = %s
@@ -575,30 +702,34 @@ def get_questions_with_answers_by_room(room_id: str):
 
 
 def create_question(question_text, option_a, option_b, option_c, option_d, correct_answer,
-                    category="Umum", question_type="mcq"):
+                    category="Umum", question_type="mcq", level=DEFAULT_LEVEL):
     ans_val = correct_answer.strip().upper() if question_type == "mcq" else correct_answer.strip()
+    level = normalize_level(level)  # ValueError jika bukan easy/normal/hard
     with _transaction() as cursor:
         cursor.execute(
             """
             INSERT INTO questions (question_text, option_a, option_b, option_c, option_d,
-                                   correct_answer, category, question_type, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *
+                                   correct_answer, category, question_type, level, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *
             """,
-            (question_text, option_a, option_b, option_c, option_d, ans_val, category, question_type, utcnow()),
+            (question_text, option_a, option_b, option_c, option_d, ans_val, category, question_type, level, utcnow()),
         )
         return dict(cursor.fetchone())
 
 
 def update_question(q_id: int, question_text, option_a, option_b, option_c, option_d, correct_answer,
-                    category="Umum", question_type="mcq"):
+                    category="Umum", question_type="mcq", level=None):
+    """level=None -> level soal TIDAK diubah (klien lama yang tidak mengirim level tidak mereset level)."""
     ans_val = correct_answer.strip().upper() if question_type == "mcq" else correct_answer.strip()
+    level = normalize_level(level, default=None)
     with _transaction() as cursor:
         cursor.execute(
             """
             UPDATE questions SET question_text=%s, option_a=%s, option_b=%s, option_c=%s, option_d=%s,
-            correct_answer=%s, category=%s, question_type=%s WHERE id=%s RETURNING *
+            correct_answer=%s, category=%s, question_type=%s, level=COALESCE(%s, level)
+            WHERE id=%s RETURNING *
             """,
-            (question_text, option_a, option_b, option_c, option_d, ans_val, category, question_type, q_id),
+            (question_text, option_a, option_b, option_c, option_d, ans_val, category, question_type, level, q_id),
         )
         row = cursor.fetchone()
         return dict(row) if row else None
@@ -630,6 +761,11 @@ def join_participant(room_id: str, name: str, department: str = "-", token: str 
     ter-refresh / browser di-restart, token itu dipakai untuk MELANJUTKAN sesi yang sama
     (resumed=True) tanpa terkena "nama sudah dipakai". Orang lain yang mengetik nama yang sama
     tanpa token tetap ditolak.
+
+    participant_dict['question_ids'] = soal yang HARUS dikerjakan peserta ini, berurutan:
+      * room "fixed"  -> soal room (sama untuk semua peserta)
+      * room "random" -> soal hasil undian khusus peserta ini. Undian dilakukan SEKALI saat bergabung
+        dan tersimpan, jadi refresh / lanjutkan sesi selalu mendapat soal yang sama.
     """
     code = (room_id or "").strip().upper()
     clean_name = _clean_name(name)
@@ -639,10 +775,11 @@ def join_participant(room_id: str, name: str, department: str = "-", token: str 
 
     try:
         with _transaction() as cursor:
-            cursor.execute("SELECT status FROM rooms WHERE id = %s", (code,))
+            cursor.execute("SELECT status, question_mode, level_counts FROM rooms WHERE id = %s", (code,))
             room = cursor.fetchone()
             if not room:
                 return None, "Room tidak ditemukan", False
+            mode = room.get("question_mode") or "fixed"
 
             cursor.execute(
                 "SELECT * FROM participants WHERE room_id = %s AND LOWER(name) = LOWER(%s)",
@@ -651,7 +788,9 @@ def join_participant(room_id: str, name: str, department: str = "-", token: str 
             existing = cursor.fetchone()
             if existing:
                 if _token_matches(existing.get("token"), token):
-                    return dict(existing), None, True
+                    participant = dict(existing)
+                    participant["question_ids"] = _assigned_question_ids(cursor, participant, mode)
+                    return participant, None, True
                 return None, "Nama sudah digunakan dalam room ini", False
 
             if room["status"] not in ("Waiting", "WAITING"):
@@ -663,7 +802,9 @@ def join_participant(room_id: str, name: str, department: str = "-", token: str 
                 "VALUES (%s, %s, %s, %s, %s) RETURNING *",
                 (code, clean_name, clean_dept, utcnow(), new_token),
             )
-            return dict(cursor.fetchone()), None, False
+            participant = dict(cursor.fetchone())
+            participant["question_ids"] = _assign_questions(cursor, participant, mode, room.get("level_counts"))
+            return participant, None, False
     except UNIQUE_ERRORS:
         return None, "Nama sudah digunakan dalam room ini", False
 
@@ -758,18 +899,102 @@ def _evaluate_essays(jobs: list) -> dict:
         return {qid: bool(future.result()) for qid, future in futures.items()}
 
 
-def _room_question_rows(cursor, room_code: str) -> list:
+def _assigned_question_ids(cursor, participant: dict, mode: str = None) -> list:
+    """
+    ID soal yang harus dikerjakan peserta ini, berurutan.
+      * room "random" -> daftar hasil undian peserta (participant_questions)
+      * room "fixed" (dan semua room lama) -> daftar soal room (room_questions)
+    """
+    if mode is None:
+        cursor.execute("SELECT question_mode FROM rooms WHERE id = %s", (participant["room_id"],))
+        row = cursor.fetchone()
+        mode = (row["question_mode"] if row else None) or "fixed"
+    if mode == "random":
+        cursor.execute(
+            "SELECT question_id FROM participant_questions WHERE participant_id = %s ORDER BY sort_order",
+            (participant["id"],),
+        )
+    else:
+        cursor.execute(
+            "SELECT question_id FROM room_questions WHERE room_id = %s ORDER BY sort_order",
+            (participant["room_id"],),
+        )
+    return [row["question_id"] for row in cursor.fetchall()]
+
+
+def _question_rows_for(cursor, ids: list) -> dict:
+    """{question_id: {id, question_type, correct_answer, level}} untuk daftar id soal."""
+    rows = {}
+    for start in range(0, len(ids), 500):  # dipotong agar tidak melewati batas jumlah parameter query
+        chunk = ids[start:start + 500]
+        cursor.execute(
+            f"SELECT id, question_type, correct_answer, level FROM questions WHERE id IN ({_placeholders(len(chunk))})",
+            chunk,
+        )
+        for row in cursor.fetchall():
+            rows[row["id"]] = dict(row)
+    return rows
+
+
+def _draw_question_ids(cursor, room_code: str, counts: dict) -> list:
+    """
+    Undi soal untuk SATU peserta baru: ambil acak sejumlah counts[level] soal dari tiap level
+    (dari soal yang dipilih Host untuk room ini), lalu acak urutannya.
+
+    Supaya peserta benar-benar mendapat soal yang berbeda, undian diulang jika kombinasi soalnya
+    persis sama dengan peserta lain di room ini (selama masih ada kombinasi lain yang mungkin).
+    """
     cursor.execute(
         """
-        SELECT q.id, q.question_type, q.correct_answer
-        FROM questions q
-        JOIN room_questions rq ON q.id = rq.question_id
-        WHERE rq.room_id = %s
-        ORDER BY rq.sort_order
+        SELECT q.id, q.level FROM room_questions rq
+        JOIN questions q ON q.id = rq.question_id
+        WHERE rq.room_id = %s ORDER BY rq.sort_order
         """,
         (room_code,),
     )
-    return [dict(r) for r in cursor.fetchall()]
+    pool = {level: [] for level in QUESTION_LEVELS}
+    for row in cursor.fetchall():
+        pool[row["level"] if row["level"] in pool else DEFAULT_LEVEL].append(row["id"])
+    take = {level: min(counts.get(level, 0), len(pool[level])) for level in QUESTION_LEVELS}
+
+    cursor.execute(
+        """
+        SELECT pq.participant_id, pq.question_id FROM participant_questions pq
+        JOIN participants p ON p.id = pq.participant_id
+        WHERE p.room_id = %s
+        """,
+        (room_code,),
+    )
+    per_participant = {}
+    for row in cursor.fetchall():
+        per_participant.setdefault(row["participant_id"], set()).add(row["question_id"])
+    used_sets = {frozenset(ids) for ids in per_participant.values()}
+
+    possible = math.prod(math.comb(len(pool[level]), take[level]) for level in QUESTION_LEVELS)
+    attempts = 40 if possible > len(used_sets) else 1  # >= 1 kombinasi belum terpakai -> coba hindari duplikat
+    picked = []
+    for _ in range(attempts):
+        picked = []
+        for level in QUESTION_LEVELS:
+            if take[level]:
+                picked.extend(_rng.sample(pool[level], take[level]))
+        _rng.shuffle(picked)
+        if frozenset(picked) not in used_sets:
+            break
+    return picked
+
+
+def _assign_questions(cursor, participant: dict, mode: str, level_counts_raw) -> list:
+    """Tentukan soal untuk peserta yang BARU bergabung (random -> diundi lalu disimpan)."""
+    if mode != "random":
+        return _assigned_question_ids(cursor, participant, mode)
+    picked = _draw_question_ids(cursor, participant["room_id"], parse_level_counts(level_counts_raw))
+    for order, question_id in enumerate(picked):
+        cursor.execute(
+            "INSERT INTO participant_questions (participant_id, question_id, sort_order) VALUES (%s, %s, %s)",
+            (participant["id"], question_id, order),
+        )
+    return picked
 
 
 def _rank_of(cursor, participant: dict) -> int:
@@ -788,26 +1013,37 @@ def _rank_of(cursor, participant: dict) -> int:
 
 
 def _build_result(cursor, participant: dict) -> dict:
-    """Hasil lengkap satu peserta: skor, status, peringkat, dan review setiap soal (urutan sesuai room)."""
+    """
+    Hasil lengkap satu peserta: skor, status, peringkat, dan review setiap soal.
+    Soal & urutannya = soal milik peserta itu sendiri (room acak: berbeda tiap peserta).
+    'by_level' = rekap benar/total per level (easy/normal/hard).
+    """
+    ids = _assigned_question_ids(cursor, participant)
+    questions = _question_rows_for(cursor, ids)
     cursor.execute(
-        """
-        SELECT q.id AS question_id, q.question_type, q.correct_answer, a.answer, a.is_correct
-        FROM room_questions rq
-        JOIN questions q ON q.id = rq.question_id
-        LEFT JOIN answers a ON a.question_id = q.id AND a.participant_id = %s
-        WHERE rq.room_id = %s
-        ORDER BY rq.sort_order
-        """,
-        (participant["id"], participant["room_id"]),
+        "SELECT question_id, answer, is_correct FROM answers WHERE participant_id = %s",
+        (participant["id"],),
     )
+    given = {row["question_id"]: row for row in cursor.fetchall()}
+
     answers = []
-    for row in cursor.fetchall():
+    by_level = {level: {"total": 0, "correct": 0} for level in QUESTION_LEVELS}
+    for question_id in ids:
+        question = questions.get(question_id)
+        if not question:
+            continue
+        row = given.get(question_id)
+        is_correct = bool(row["is_correct"]) if row is not None else False
+        level = question["level"] if question["level"] in by_level else DEFAULT_LEVEL
+        by_level[level]["total"] += 1
+        by_level[level]["correct"] += 1 if is_correct else 0
         answers.append({
-            "question_id": row["question_id"],
-            "answer_user": row["answer"] or "",
-            "correct_answer": row["correct_answer"],
-            "is_correct": bool(row["is_correct"]) if row["answer"] is not None else False,
-            "question_type": row["question_type"] or "mcq",
+            "question_id": question_id,
+            "answer_user": (row["answer"] if row is not None else "") or "",
+            "correct_answer": question["correct_answer"],
+            "is_correct": is_correct,
+            "question_type": question["question_type"] or "mcq",
+            "level": level,
         })
     correct = sum(1 for a in answers if a["is_correct"])
     return {
@@ -818,6 +1054,7 @@ def _build_result(cursor, participant: dict) -> dict:
         "total": len(answers),
         "correct": correct,
         "incorrect": len(answers) - correct,
+        "by_level": by_level,
         "answers": answers,
         "submit_time": participant.get("submitted_at"),
     }
@@ -833,7 +1070,8 @@ def submit_answers_batch(room_id: str, answers: list, participant_name: str = No
 
     Catatan penting:
       * Penilaian SELALU dihitung ulang di server (nilai dari browser tidak dipercaya).
-      * Hanya soal milik room ini yang dihitung (mencegah skor > 100 dengan soal tambahan).
+      * Hanya soal yang DITUGASKAN ke peserta ini yang dihitung (mencegah skor > 100 dengan soal tambahan,
+        dan di room acak: soal peserta lain tidak ikut dihitung).
       * Pengiriman kedua (mis. retry karena sinyal HP putus) tidak mengubah nilai: hasil
         pertama dikembalikan apa adanya (idempoten) dan jawaban tidak bisa diubah setelah
         melihat kunci jawaban.
@@ -856,7 +1094,7 @@ def submit_answers_batch(room_id: str, answers: list, participant_name: str = No
         cursor.execute("SELECT passing_grade FROM rooms WHERE id = %s", (code,))
         room_row = cursor.fetchone()
         passing_grade = room_row["passing_grade"] if room_row else 70
-        questions = {q["id"]: q for q in _room_question_rows(cursor, code)}
+        questions = _question_rows_for(cursor, _assigned_question_ids(cursor, participant))
 
     # 2) Nilai jawaban
     submitted = {}
@@ -925,10 +1163,10 @@ def save_single_answer(room_id: str, participant_name: str, question_id: int, an
         if participant["submitted_at"] is not None:
             return {"participant_id": participant["id"], "saved": False, "already_submitted": True}
 
-        questions = {q["id"]: q for q in _room_question_rows(cursor, code)}
-        question = questions.get(question_id)
+        assigned = _assigned_question_ids(cursor, participant)
+        question = _question_rows_for(cursor, [question_id]).get(question_id) if question_id in assigned else None
         if not question:
-            raise LookupError("Soal bukan bagian dari room ini")
+            raise LookupError("Soal ini bukan bagian dari soal peserta")
 
         if (question["question_type"] or "mcq") == "essay":
             stored, is_correct = (answer or "").strip(), False
@@ -970,20 +1208,19 @@ def submit_answer(participant_id: int, question_id: int, answer: str):
 
 
 def _finalize_score(cursor, participant_id: int, room_id: str, passing_grade: int):
-    cursor.execute("SELECT COUNT(*) AS total FROM room_questions WHERE room_id = %s", (room_id,))
-    total = cursor.fetchone()["total"]
+    # Skor = benar / jumlah soal MILIK PESERTA INI (di room acak tiap peserta punya daftar soal sendiri)
+    ids = _assigned_question_ids(cursor, {"id": participant_id, "room_id": room_id})
+    total = len(ids)
 
-    # Hanya jawaban untuk soal milik room ini yang dihitung
-    cursor.execute(
-        """
-        SELECT COUNT(*) AS correct
-        FROM answers a
-        JOIN room_questions rq ON rq.question_id = a.question_id AND rq.room_id = %s
-        WHERE a.participant_id = %s AND a.is_correct = TRUE
-        """,
-        (room_id, participant_id),
-    )
-    correct = cursor.fetchone()["correct"]
+    correct = 0
+    for start in range(0, total, 500):  # dipotong agar tidak melewati batas jumlah parameter query
+        chunk = ids[start:start + 500]
+        cursor.execute(
+            f"SELECT COUNT(*) AS correct FROM answers WHERE participant_id = %s AND is_correct = TRUE "
+            f"AND question_id IN ({_placeholders(len(chunk))})",
+            [participant_id, *chunk],
+        )
+        correct += cursor.fetchone()["correct"]
 
     score = min(100, round((correct / total) * 100)) if total > 0 else 0
     status = "PASS" if score >= passing_grade else "FAIL"
@@ -1028,8 +1265,13 @@ def get_participant_progress(room_id: str):
     """Progress tiap peserta: berapa soal sudah dijawab."""
     code = room_id.upper()
     with _transaction() as cursor:
+        cursor.execute("SELECT question_mode, level_counts FROM rooms WHERE id = %s", (code,))
+        room = cursor.fetchone() or {}
         cursor.execute("SELECT COUNT(*) AS total FROM room_questions WHERE room_id = %s", (code,))
-        total_q = cursor.fetchone()["total"]
+        pool_size = cursor.fetchone()["total"]
+        # room acak: jumlah soal per peserta = jumlah yang diminta Host, bukan seluruh pool
+        total_q = (sum(parse_level_counts(room.get("level_counts")).values())
+                   if room.get("question_mode") == "random" else pool_size)
         cursor.execute(
             """
             SELECT p.id, p.name, p.department, p.score, p.status, p.submitted_at,

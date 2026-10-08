@@ -12,10 +12,15 @@ Aplikasi mendukung multi-level *role* dengan akses ke fitur spesifik:
 ## 2. Bank Soal Terpusat (Question Bank)
 - **Manajemen Soal (CRUD)**: Host dapat menambah, mengedit, melihat, dan menghapus soal kuis.
 - **Kategorisasi**: Soal kuis dapat difilter berdasarkan "Kategori" tertentu (misal: Umum, IT, HR).
+- **Level Soal (Easy / Normal / Hard)**: level tiap soal **ditentukan Host/Admin** saat menambah atau mengubah soal (bawaan Normal). Bank Soal menampilkan badge level, rekap jumlah soal per level, dan filter level. Soal yang sudah ada sebelum fitur ini otomatis berlevel Normal.
 - **Dinamis & Fleksibel**: Pilihan ganda didesain dinamis dengan 4 opsi (A, B, C, D) dengan satu pilihan benar.
 
 ## 3. Manajemen Ruang Kuis (Room Management)
 - **Pembuatan Kuis Kustom**: Host dapat merancang kuis dengan memilih kumpulan soal dari Bank Soal, menentukan durasi waktu (dalam menit), dan menetapkan Nilai Kelulusan (Passing Grade).
+- **Soal Acak Berbeda untuk Tiap Peserta**: saat membuat kuis, Host mencentang soal sebagai bahan soal lalu memilih cara pembagiannya:
+  - **Acak berbeda untuk tiap peserta** (bawaan): Host menentukan **jumlah soal per level** untuk setiap peserta, mis. 3 Easy + 3 Normal + 2 Hard. Begitu peserta memindai QR dan bergabung, server mengundi soalnya secara acak dari soal terpilih (urutannya juga diacak) dan berusaha agar tidak ada dua peserta dengan kombinasi soal yang sama. Hasil undian disimpan, jadi refresh/lanjut sesi tetap mendapat soal yang sama. Untuk kuis khusus level tertentu (mis. Hard saja), isi jumlah 0 pada level lain.
+  - **Sama untuk semua peserta**: semua peserta mengerjakan soal terpilih dengan urutan yang sama (perilaku lama).
+  - Layar pembuatan kuis memberi tahu jumlah soal tersedia per level dan seberapa bervariasi soal antar peserta (jika jumlah per level sama dengan soal yang dicentang, semua peserta akan mendapat soal yang sama dan Host diperingatkan).
 - **Room Code & QR Code**: Setiap kuis *generate* kode ruang unik 4 huruf dan mencetak QR code secara otomatis. QR code berisi alamat **jaringan** komputer host (mis. `http://192.168.1.10:8000/?room=ABCD`), bukan `localhost`, sehingga bisa dipindai dari HP. Peserta yang memindai langsung masuk dengan kode room terisi otomatis. Tersedia tombol *Salin Link* / *Bagikan* dan pilihan alamat jika komputer host punya beberapa jaringan.
 - **Room dipulihkan**: jika halaman Host di-refresh atau browser ditutup, room yang belum selesai dibuka kembali otomatis. Room yang tidak jadi dipakai bisa dibatalkan lewat tombol *Batalkan room*.
 - **Siklus Status Kuis**: Room memiliki 3 transisi status terpadu:
@@ -31,14 +36,16 @@ Fungsionalitas ini dipersenjatai oleh **WebSockets** asli (`app.py`), menghasilk
 
 ## 5. Pengerjaan Kuis Klien (Client Interface)
 - **Interface Intuitif**: UI kuis bersih dan tidak memecah konsentrasi. Soal dan pilihan ganda ditampilkan secara dinamis tanpa jeda pindah halaman (*Single Page Application*).
+- **Level terlihat**: setiap soal menampilkan badge level (Easy / Normal / Hard), dan waiting room memberi tahu jumlah soal untuk peserta tersebut.
 - **Live Timer**: Waktu pengerjaan berjalan mundur berdasarkan **batas waktu dari server**, bukan hitungan lokal, sehingga adil untuk semua peserta, tetap akurat walau layar HP terkunci, dan tidak terpengaruh jam HP yang salah. Saat waktu mendekati habis, UI memberikan notifikasi berkedip. Apabila durasi kuis habis, sistem klien otomatis melakukan *submit* dan mengunci layar kuis.
-- **Auto-Finalize Score**: Backend secara otomatis membandingkan jawaban klien dengan kunci di *Question Bank*, menghitung skor (0-100), dan menentukan kelulusan berdasarkan *Passing Grade*. Penilaian selalu dihitung ulang di server, hanya soal milik room yang dihitung, dan pengiriman ulang tidak mengubah nilai.
+- **Auto-Finalize Score**: Backend secara otomatis membandingkan jawaban klien dengan kunci di *Question Bank*, menghitung skor (0-100), dan menentukan kelulusan berdasarkan *Passing Grade*. Penilaian selalu dihitung ulang di server, hanya soal milik peserta itu yang dihitung (di room acak, soal peserta lain tidak ikut dihitung), dan pengiriman ulang tidak mengubah nilai. Skor = benar dibagi jumlah soal peserta itu; semua peserta di satu room mengerjakan jumlah soal yang sama.
 - **Koreksi Essay**: soal essay dinilai oleh AI Gemini jika `GEMINI_API_KEY` diisi (model dapat diatur lewat `GEMINI_MODEL`, bawaan `gemini-flash-latest`); tanpa kunci API dipakai pencocokan kata kunci sederhana.
 
 ## 6. Laporan, Riwayat, dan Cetak PDF (Analytics & Reporting)
 - **Quiz History Dashboard**: Kuis yang telah selesai (*Finished*) otomatis direkam dalam tabel riwayat beserta ringkasan keseluruhan (rata-rata skor, jumlah lulus, dan jumlah gagal).
-- **Review Jawaban (Peserta)**: Di akhir kuis, peserta disajikan ringkasan hasil mereka. Klien dapat melihat kunci jawaban yang benar dan evaluasi setiap nomor (Benar/Salah).
+- **Review Jawaban (Peserta)**: Di akhir kuis, peserta disajikan ringkasan hasil mereka. Klien dapat melihat kunci jawaban yang benar dan evaluasi setiap nomor (Benar/Salah), lengkap dengan level soal dan rekap benar/total per level (mis. Easy 3/3, Normal 2/3, Hard 1/2).
 - **Generate Laporan Peserta (PDF)**: Peserta dapat mengunduh rapor mereka sendiri (*Review Jawaban*) dalam format PDF berkualitas tinggi. PDF dirender pada lebar kertas A4 yang tetap sehingga hasilnya sama di HP maupun desktop.
+- **Susunan soal di laporan**: laporan HRD memuat baris *Question Set* (mis. "Acak berbeda per peserta: 2 Easy + 2 Normal + 2 Hard = 6 soal/peserta") sebagai bukti cara soal dibagikan.
 - **Generate Laporan HRD (PDF)**: Host dapat mengunduh laporan asesmen *batch* seluruh peserta dalam satu kuis beserta parameter lengkap (Nama, Departemen, Skor, Tanggal). Peserta yang tidak pernah mengirim jawaban ditandai *TIDAK SUBMIT*. Ini sangat efisien untuk rekapitulasi data HRD/Training.
 - Modul PDF (html2pdf.js) diunduh hanya saat tombol PDF ditekan, jadi tidak membebani HP peserta yang tidak membutuhkannya (membutuhkan internet).
 

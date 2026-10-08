@@ -50,6 +50,16 @@ function describeAnswers(question, answer) {
   };
 }
 
+// Rekap benar/total per level, mis. "Easy 3/3 · Normal 2/3 · Hard 1/2" (hanya level yang ada di soal peserta ini)
+function renderLevelBreakdown(byLevel) {
+  const box = $('result-level-breakdown');
+  const rows = window.Levels.order.filter((level) => byLevel && byLevel[level] && byLevel[level].total > 0);
+  box.innerHTML = rows.map((level) => (
+    `<div class="level-stat">${window.Levels.badge(level)}<strong>${byLevel[level].correct}/${byLevel[level].total}</strong></div>`
+  )).join('');
+  box.classList.toggle('hidden', rows.length < 2); // satu level saja: rekapnya sama dengan Benar/Salah di atas
+}
+
 function showResultPanel(result) {
   lastResult = result;
 
@@ -76,6 +86,7 @@ function showResultPanel(result) {
 
   $('result-stat-correct').textContent = correct;
   $('result-stat-incorrect').textContent = incorrect;
+  renderLevelBreakdown(result.by_level);
 
   // Render review lists (Visual review on page and Hidden printable PDF preview)
   const reviewList = $('result-review-list');
@@ -108,7 +119,10 @@ function showResultPanel(result) {
     reviewCard.className = `glass-panel p-4 border bg-opacity-10 ${ans.is_correct ? 'border-emerald-500' : 'border-red-500'}`;
     reviewCard.innerHTML = `
       <div class="flex justify-between items-center mb-2 gap-2">
-        <span class="text-xs text-gray-400 font-bold">SOAL ${idx + 1} (${typeLabel})</span>
+        <span class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs text-gray-400 font-bold">SOAL ${idx + 1} (${typeLabel})</span>
+          ${window.Levels.badge(q.level)}
+        </span>
         <span class="badge ${ans.is_correct ? 'badge-pass' : 'badge-fail'}">${ans.is_correct ? 'BENAR' : 'SALAH'}</span>
       </div>
       <p class="font-medium text-gray-200 mb-4" style="overflow-wrap: anywhere; white-space: pre-line;">${window.escapeHTML(q.question_text)}</p>
@@ -130,7 +144,7 @@ function showResultPanel(result) {
     pdfCard.className = 'border-b border-gray-100 py-3 pdf-avoid-break';
     pdfCard.setAttribute('style', 'border-bottom: 1px solid #e2e8f0; padding: 12px 0;');
     pdfCard.innerHTML = `
-      <div style="font-weight: bold; color: #111827; margin-bottom: 4px;">${idx + 1}. ${window.escapeHTML(q.question_text)} <span style="font-size: 9px; color: #4b5563;">(${text.type.toUpperCase()})</span></div>
+      <div style="font-weight: bold; color: #111827; margin-bottom: 4px;">${idx + 1}. ${window.escapeHTML(q.question_text)} <span style="font-size: 9px; color: #4b5563;">(${text.type.toUpperCase()} &middot; ${window.Levels.label(q.level).toUpperCase()})</span></div>
       <div style="margin-left: 10px; font-size: 11px; color: #374151;">
         <div style="margin-bottom: 2px;">Jawaban Anda: <strong style="color: ${ans.is_correct ? '#16a34a' : '#dc2626'}">${text.user}</strong></div>
         <div style="margin-bottom: 2px;">Jawaban Benar: <strong style="color: #16a34a;">${text.correct}</strong></div>
