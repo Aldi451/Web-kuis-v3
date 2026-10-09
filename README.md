@@ -47,9 +47,14 @@ Opsi yang sama berlaku (`--reload`, `--port 9000`, dst.).
    ```
    Di HP (WiFi sama): http://192.168.1.23:8000   <-- buka / scan QR dari alamat ini
    ```
-3. **Peserta**: Host membuat kuis → halaman *Waiting Room* menampilkan **QR code**. Peserta memindainya dengan
-   kamera HP, mengisi nama + departemen, dan masuk. (Atau buka alamat di atas dan ketik kode room 4 huruf.)
-4. **Host / Admin**: buka alamat yang sama di HP, tekan *Masuk Sebagai Host / Admin*.
+3. **Peserta (Member)**: Admin/Host membuat akun **Member** (Admin Dashboard → Tambah Pengguna → role *Member*).
+   Host membuat kuis → halaman *Waiting Room* menampilkan **link & QR code (barcode)** yang sudah digenerate.
+   Member **login** sebagai Member (halaman utama hanya berisi login: Host / Member / Admin), lalu **scan barcode**
+   dengan kamera HP — langsung masuk ke kuis. (Atau buka alamat di atas, login, lalu ketik kode room 4 huruf di portal Member.)
+   Member yang terdaftar di kuis bisa scan & menyusul **meski kuis sudah berjalan**.
+4. **Host / Admin**: login di halaman yang sama. **Admin** punya akses penuh: kelola semua user (User ID, role,
+   tambah/hapus — termasuk akun Member) dan seluruh kuis (bank soal, import Excel, buat kuis + roster member & level,
+   monitoring, riwayat & laporan).
 
 Akun bawaan: `admin` / `admin123` (**segera ganti**, lihat bagian Keamanan).
 
@@ -91,6 +96,7 @@ Semua opsional. Salin `.env.example` menjadi `.env` lalu ubah yang diperlukan.
 - **PostgreSQL** (opsional): isi `DATABASE_URL`. Database dibuat otomatis jika belum ada.
 - Semua waktu disimpan dalam **UTC** dan ditampilkan sesuai zona waktu perangkat.
 - Database lama otomatis dimigrasi saat server start (menambah kolom `rooms.started_at` dan `participants.token`, serta `questions.level`, `rooms.question_mode`, `rooms.level_counts` dan tabel `participant_questions` untuk level soal & soal acak per peserta). Data lama tetap utuh: soal lama berlevel Normal dan room lama tetap "sama untuk semua peserta".
+- Migrasi juga menambah: role **Member**, kolom `participants.user_id` & `participants.assigned_level`, tabel `room_members` (roster kuis), `auth_sessions` (token login), dan `member_seen_questions` (riwayat soal per member untuk anti-nyontek).
 
 > `quizdb.db` ikut ter-commit di repositori ini dan berisi akun + soal Anda. Sebaiknya jangan dibagikan; lepaskan
 > dari Git dengan `git rm --cached quizdb.db` lalu tambahkan `quizdb.db` ke `.gitignore`.
@@ -153,9 +159,10 @@ Aplikasi ini ditujukan untuk jaringan internal yang dipercaya (ruang training / 
 
 - Akun bawaan `admin` / `admin123`. **Ganti passwordnya.**
 - Password disimpan apa adanya (belum di-hash).
-- Halaman Host/Admin dijaga di sisi browser; endpoint API belum memakai token sesi di server. Peserta yang paham
-  teknis bisa memanggil API Host secara langsung.
-- Form pendaftaran di halaman utama membolehkan siapa pun mendaftar sebagai Host/Admin.
+- Halaman Host/Admin dijaga di sisi browser; endpoint API Host/Admin belum memakai token sesi di server. Peserta
+  yang paham teknis bisa memanggil API Host secara langsung. (Login kini mengembalikan token sesi yang dipakai
+  untuk menghubungkan Member dengan akunnya saat join — roster & anti-nyontek bergantung pada token ini.)
+- Pendaftaran akun (Host/Admin/Member) dilakukan oleh Admin lewat Admin Dashboard (role dipilih Admin/Host).
 - Kunci jawaban ikut terkirim ke browser peserta saat kuis berjalan (dipakai untuk halaman review).
 
 Jika aplikasi akan dibuka ke internet, tambahkan autentikasi berbasis token + hash password terlebih dahulu.

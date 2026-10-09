@@ -22,6 +22,15 @@
     <h1 class="text-3xl font-extrabold mb-2 text-gradient">QUIZ PLATFORM</h1>
     <p class="text-muted mb-8 text-sm">Real-time assessment, grading, and reporting system</p>
 
+    <!-- Info room dari barcode (muncul saat halaman dibuka lewat link /?room=KODE hasil scan QR) -->
+    <div id="room-hint" class="resume-card hidden" role="status">
+      <div class="text-xs font-bold text-indigo-300 mb-1 uppercase tracking-wider">Room terdeteksi</div>
+      <p class="text-sm text-gray-200">
+        Kamu membuka room <strong id="room-hint-code" class="tracking-widest"></strong>.
+        Login sebagai <strong>Member</strong> untuk langsung bergabung ke kuis ini.
+      </p>
+    </div>
+
     <!-- LANJUTKAN SESI (muncul jika halaman kuis sebelumnya tertutup / ter-refresh di HP) -->
     <div id="resume-card" class="resume-card hidden" role="status">
       <div class="text-xs font-bold text-indigo-300 mb-1 uppercase tracking-wider">Sesi sebelumnya</div>
@@ -35,128 +44,35 @@
       </div>
     </div>
 
-    <!-- CLIENT JOIN FORM -->
-    <form id="form-join" class="text-left" autocomplete="off" novalidate>
-      <h2 class="text-lg font-semibold mb-4 text-left">Gabung Sebagai Peserta</h2>
-      <p id="join-room-hint" class="form-hint mb-4 hidden">Kode room terisi otomatis dari QR code. Cukup isi nama dan departemen.</p>
+    <!-- LOGIN (satu-satunya fitur di halaman awal: Host / Member / Admin) -->
+    <form id="form-login" class="text-left" autocomplete="on" novalidate>
+      <h2 class="text-lg font-semibold mb-1 text-left">Login Portal</h2>
+      <p class="form-hint mb-4">Masuk sebagai <strong>Host</strong>, <strong>Member</strong> (peserta), atau <strong>Admin</strong>.</p>
       <div class="flex flex-col gap-4 text-left">
         <div>
-          <label class="field-label" for="join-room-code">KODE RUANG (ROOM CODE)</label>
-          <input type="text" id="join-room-code" class="input-field code-input mt-1" placeholder="Contoh: ABCD" maxlength="10"
-                 autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next">
+          <label class="field-label" for="login-username">USERNAME</label>
+          <input type="text" id="login-username" name="username" class="input-field mt-1" placeholder="Username" required
+                 autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
         </div>
         <div>
-          <label class="field-label" for="join-name">NAMA LENGKAP</label>
-          <input type="text" id="join-name" class="input-field mt-1" placeholder="Masukkan nama Anda..." maxlength="60"
-                 autocomplete="name" autocapitalize="words" spellcheck="false" enterkeyhint="next">
+          <label class="field-label" for="login-password">PASSWORD</label>
+          <div class="input-wrap mt-1">
+            <input type="password" id="login-password" name="password" class="input-field" placeholder="••••••••" required
+                   autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go">
+            <button type="button" class="input-toggle" data-toggle-password="login-password" aria-label="Tampilkan password">LIHAT</button>
+          </div>
         </div>
-        <div>
-          <label class="field-label" for="join-department">DEPARTEMEN</label>
-          <input type="text" id="join-department" class="input-field mt-1" placeholder="Contoh: HRD, Front Office..." maxlength="60"
-                 list="department-list" autocomplete="off" autocapitalize="words" enterkeyhint="go">
-          <datalist id="department-list">
-            <option value="Front Office"></option>
-            <option value="Housekeeping"></option>
-            <option value="Food &amp; Beverage"></option>
-            <option value="Sales &amp; Marketing"></option>
-            <option value="HRD"></option>
-            <option value="Accounting"></option>
-            <option value="Engineering"></option>
-            <option value="IT"></option>
-          </datalist>
-        </div>
-        <p id="join-error" class="form-error hidden" role="alert"></p>
-        <button type="submit" id="btn-join-room" class="btn btn-primary w-full mt-2">Gabung Kuis</button>
+        <p id="login-error" class="form-error hidden" role="alert"></p>
+        <button type="submit" id="btn-login-submit" class="btn btn-primary w-full mt-2">Masuk</button>
       </div>
     </form>
 
-    <!-- DIVIDER -->
-    <div class="divider-label">
-      <hr>
-      <span>ATAU</span>
-    </div>
-
-    <!-- HOST/ADMIN LOGIN BUTTON -->
-    <button type="button" id="btn-show-login" class="btn btn-secondary w-full">Masuk Sebagai Host / Admin</button>
+    <p class="form-hint mt-4">Member (peserta) scan barcode room dari Host, lalu login untuk mengerjakan kuis.</p>
 
     <div class="mt-8 text-xs text-gray-500">
       &copy; 2026 Assessment System. All rights reserved.
     </div>
   </main>
-
-  <!-- LOGIN & REGISTER MODAL (di HP muncul sebagai lembar dari bawah) -->
-  <div id="login-modal" class="modal-backdrop hidden">
-    <div class="modal-sheet glass-panel p-6" style="max-width: 24rem;" role="dialog" aria-modal="true">
-
-      <!-- Login Section -->
-      <div id="login-section">
-        <div class="flex justify-between items-center mb-6">
-          <h2 class="text-xl font-bold text-gradient">Login Portal</h2>
-          <button type="button" id="btn-close-login" class="text-gray-400 hover:text-white" aria-label="Tutup"
-                  style="font-size: 1.75rem; line-height: 1; min-width: 44px; min-height: 44px;">&times;</button>
-        </div>
-
-        <form id="form-login" class="flex flex-col gap-4" autocomplete="on">
-          <div>
-            <label class="field-label" for="login-username">USERNAME</label>
-            <input type="text" id="login-username" name="username" class="input-field mt-1" placeholder="Username" required
-                   autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
-          </div>
-          <div>
-            <label class="field-label" for="login-password">PASSWORD</label>
-            <div class="input-wrap mt-1">
-              <input type="password" id="login-password" name="password" class="input-field" placeholder="••••••••" required
-                     autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go">
-              <button type="button" class="input-toggle" data-toggle-password="login-password" aria-label="Tampilkan password">LIHAT</button>
-            </div>
-          </div>
-          <p id="login-error" class="form-error hidden" role="alert"></p>
-          <button type="submit" id="btn-login-submit" class="btn btn-primary w-full mt-2">Masuk</button>
-        </form>
-        <p class="text-xs text-center text-gray-400 mt-4">
-          Belum punya akun? <a href="#" id="link-show-register" class="text-indigo-400 font-bold hover:underline">Daftar Akun Baru</a>
-        </p>
-      </div>
-
-      <!-- Register Section -->
-      <div id="register-section" class="hidden">
-        <div class="flex justify-between items-center mb-6">
-          <h2 class="text-xl font-bold text-gradient">Daftar Host / Admin</h2>
-          <button type="button" id="btn-close-register" class="text-gray-400 hover:text-white" aria-label="Tutup"
-                  style="font-size: 1.75rem; line-height: 1; min-width: 44px; min-height: 44px;">&times;</button>
-        </div>
-
-        <form id="form-register" class="flex flex-col gap-4" autocomplete="on">
-          <div>
-            <label class="field-label" for="register-username">USERNAME</label>
-            <input type="text" id="register-username" name="new-username" class="input-field mt-1" placeholder="Username baru" required maxlength="50"
-                   autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
-          </div>
-          <div>
-            <label class="field-label" for="register-password">PASSWORD</label>
-            <div class="input-wrap mt-1">
-              <input type="password" id="register-password" name="new-password" class="input-field" placeholder="••••••••" required
-                     autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
-              <button type="button" class="input-toggle" data-toggle-password="register-password" aria-label="Tampilkan password">LIHAT</button>
-            </div>
-          </div>
-          <div>
-            <label class="field-label" for="register-role">DAFTAR SEBAGAI</label>
-            <select id="register-role" class="input-field mt-1">
-              <option value="Host" selected>Host (Pembuat Kuis)</option>
-              <option value="Admin">Admin (Manajemen User)</option>
-            </select>
-          </div>
-          <p id="register-error" class="form-error hidden" role="alert"></p>
-          <button type="submit" id="btn-register-submit" class="btn btn-primary w-full mt-2">Daftar Sekarang</button>
-        </form>
-        <p class="text-xs text-center text-gray-400 mt-4">
-          Sudah punya akun? <a href="#" id="link-show-login" class="text-indigo-400 font-bold hover:underline">Log In</a>
-        </p>
-      </div>
-
-    </div>
-  </div>
 
   <!-- Scripts -->
   <script src="js/common.js"></script>

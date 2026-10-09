@@ -76,8 +76,9 @@ const API = {
   register(username, password, role) {
     return this.request('/api/auth/register', 'POST', { username, password, role });
   },
-  getUsers() {
-    return this.request('/api/auth/users');
+  getUsers(role = null) {
+    const query = role ? `?role=${encodeURIComponent(role)}` : '';
+    return this.request(`/api/auth/users${query}`);
   },
   deleteUser(userId) {
     return this.request(`/api/auth/users/${userId}`, 'DELETE');
@@ -108,6 +109,12 @@ const API = {
   getRoom(code) {
     return this.request(`/api/rooms/${encodeURIComponent(code)}`);
   },
+  getRoomMembers(code) {
+    return this.request(`/api/rooms/${encodeURIComponent(code)}/members`);
+  },
+  setRoomMembers(code, members) {
+    return this.request(`/api/rooms/${encodeURIComponent(code)}/members`, 'PUT', { members });
+  },
   getFinishedRooms() {
     return this.request('/api/rooms/finished');
   },
@@ -121,10 +128,13 @@ const API = {
 
   // Participants
   // token = kunci sesi dari join sebelumnya; dengan token, refresh halaman di HP tidak membuat peserta "terkunci".
-  joinRoom(roomId, name, department, token = null) {
+  // authToken = token sesi LOGIN (Member). Dipakai server untuk menghubungkan peserta ke akunnya
+  // (roster kuis, level soal per member, anti soal berulang).
+  joinRoom(roomId, name, department, token = null, authToken = null) {
     const body = { room_id: roomId, name, department };
     if (token) body.token = token;
-    return this.request('/api/rooms/join', 'POST', body);
+    const headers = authToken ? { 'X-Auth-Token': authToken } : {};
+    return this.request('/api/rooms/join', 'POST', body, { headers });
   },
   leaveRoom(participantId, token) {
     return this.request(`/api/participants/${participantId}/leave`, 'POST', null, {
@@ -158,6 +168,37 @@ const API = {
   },
   getRoomSummary(roomId) {
     return this.request(`/api/rooms/${encodeURIComponent(roomId)}/summary`);
+  },
+
+  // Import soal dari Excel (.xlsx) - upload multipart (tidak bisa lewat request JSON biasa)
+  async uploadQuestionsImport(file) {
+    let res;
+    try {
+      const form = new FormData();
+      form.append('file', file, file.name || 'import.xlsx');
+      res = await fetch('/api/questions/import', { method: 'POST', body: form, cache: 'no-store' });
+    } catch (err) {
+      const e = new Error('Tidak dapat terhubung ke server. Pastikan HP terhubung ke WiFi yang sama dengan komputer host, lalu coba lagi.');
+      e.network = true;
+      throw e;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const e = new Error(data.detail || `Error ${res.status}: ${res.statusText}`);
+      e.status = res.status;
+      throw e;
+    }
+    return data;
+  },
+
+  // Unduh template Excel untuk import soal
+  downloadImportTemplate() {
+    const link = document.createElement('a');
+    link.href = '/api/questions/import/template';
+    link.download = 'template_import_soal.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 };
 

@@ -1,4 +1,4 @@
-// js/auth.js - sesi login Host / Admin (disimpan di localStorage browser)
+// js/auth.js - sesi login Host / Member / Admin (disimpan di localStorage browser)
 
 const Auth = {
   async login(username, password) {
@@ -11,11 +11,12 @@ const Auth = {
       throw e;
     }
 
-    // Store user session info
+    // Store user session info (+ token sesi: dipakai saat Member scan barcode & join room)
     localStorage.setItem('auth_user', JSON.stringify({
       username: data.username,
       role: data.role
     }));
+    localStorage.setItem('auth_token', data.token || '');
 
     return data;
   },
@@ -30,9 +31,18 @@ const Auth = {
     }
   },
 
+  // Token sesi login (dikirim sebagai X-Auth-Token saat join room sebagai Member)
+  getToken() {
+    return localStorage.getItem('auth_token') || '';
+  },
+
   logout() {
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('auth_token');
     localStorage.removeItem('host_active_room');
+    // Sesi kuis (peserta) ikut dibersihkan: setelah logout, mulai dari halaman login
+    ['client_room_code', 'client_room_id', 'client_participant_name', 'client_department', 'client_session_v2']
+      .forEach((key) => localStorage.removeItem(key));
     window.location.href = 'index.html';
   },
 
@@ -40,7 +50,10 @@ const Auth = {
     const user = this.getCurrentUser();
     if (!user || !allowedRoles.includes(user.role)) {
       // Pesan ditampilkan di halaman tujuan (alert() sebelum redirect sering terblokir di browser HP)
-      if (window.UI) window.UI.flash('Akses ditolak. Silakan login terlebih dahulu.');
+      const message = user
+        ? `Akun "${user.username}" (role ${user.role}) tidak punya akses ke halaman ini. Silakan login dengan akun yang sesuai.`
+        : 'Akses ditolak. Silakan login terlebih dahulu.';
+      if (window.UI) window.UI.flash(message);
       window.location.href = 'index.html';
       throw new Error('Unauthorized access.');
     }

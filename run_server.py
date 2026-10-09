@@ -52,6 +52,8 @@ REQUIRED_MODULES = {
     "pydantic": "pydantic",
     "python-dotenv": "dotenv",
     "httpx": "httpx",
+    "openpyxl": "openpyxl",          # import soal dari Excel
+    "python-multipart": "multipart",  # upload file Excel dari browser
 }
 OPTIONAL_PACKAGES = ("psycopg2-binary",)  # hanya untuk PostgreSQL; tanpa ini aplikasi memakai SQLite
 

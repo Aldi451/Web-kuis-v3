@@ -20,7 +20,7 @@
     <div class="header-container glass-panel p-6 mb-8 flex justify-between items-center" style="flex-wrap: wrap;">
       <div>
         <h1 class="text-2xl font-bold text-gradient">Admin Dashboard</h1>
-        <p class="text-xs text-gray-400">Manajemen Pengguna &amp; Hak Akses</p>
+        <p class="text-xs text-gray-400">Manajemen Pengguna (User ID) &amp; Akses Penuh Kuis</p>
       </div>
       <button onclick="window.Auth.logout()" class="btn btn-danger text-sm">Logout</button>
     </div>
@@ -46,12 +46,14 @@
           <div>
             <label class="field-label" for="add-role">ROLE</label>
             <select id="add-role" class="input-field mt-1">
-              <option value="Host" selected>Host</option>
+              <option value="Member" selected>Member (Peserta - login &amp; scan barcode kuis)</option>
+              <option value="Host">Host (Pembuat Kuis)</option>
               <option value="Admin">Admin</option>
             </select>
           </div>
           <button type="submit" id="btn-add-user" class="btn btn-primary w-full mt-2">Simpan User</button>
         </form>
+        <p class="form-hint mt-3">Member adalah peserta: akunnya dipakai untuk login lalu scan barcode room kuis yang dimulai Host/Admin.</p>
       </div>
 
       <!-- Users List -->
@@ -61,6 +63,7 @@
           <table class="custom-table responsive-table w-full">
             <thead>
               <tr>
+                <th>ID</th>
                 <th>Username</th>
                 <th>Role</th>
                 <th class="text-right">Aksi</th>
@@ -68,12 +71,22 @@
             </thead>
             <tbody id="users-table-body">
               <tr>
-                <td colspan="3" class="text-center text-gray-500 py-4">Memuat data...</td>
+                <td colspan="4" class="text-center text-gray-500 py-4">Memuat data...</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- Admin punya akses penuh ke seluruh fitur kuis -->
+    <div class="glass-panel p-6 mt-6">
+      <h3 class="text-lg font-bold mb-2 text-gradient">Kelola Kuis (Akses Penuh Admin)</h3>
+      <p class="text-sm text-gray-400 mb-4">
+        Admin dapat mengelola semuanya: bank soal (tambah, edit, import Excel), membuat kuis &amp; memilih member
+        beserta levelnya, memantau kuis, dan melihat riwayat &amp; laporan.
+      </p>
+      <a href="host.html" class="btn btn-primary text-sm" style="display: inline-block; min-height: 44px; line-height: 2;">Buka Dashboard Kuis (Bank Soal &bull; Buat Kuis &bull; Riwayat)</a>
     </div>
   </div>
 
