@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="color-scheme" content="dark">
+  <title>Member Portal - Quiz Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="css/tailwind.local.css">
+  <!-- CDN penuh dimuat TANPA memblokir tampilan: jaring pengaman jika ada class Tailwind baru yang belum di-build ke css/tailwind.local.css -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body class="landing-body">
+
+  <main class="landing-card glass-panel">
+    <h1 class="text-3xl font-extrabold mb-2 text-gradient">MEMBER PORTAL</h1>
+    <p class="text-muted mb-6 text-sm">
+      Halo, <strong id="member-username" class="text-gray-200"></strong> — scan barcode dari Host atau ketik kode room untuk mulai kuis.
+    </p>
+
+    <!-- LANJUTKAN SESI (muncul jika halaman kuis sebelumnya tertutup / ter-refresh di HP) -->
+    <div id="resume-card" class="resume-card hidden" role="status">
+      <div class="text-xs font-bold text-indigo-300 mb-1 uppercase tracking-wider">Sesi sebelumnya</div>
+      <p class="text-sm text-gray-200 mb-3">
+        Kamu masih tergabung di room <strong id="resume-room" class="tracking-widest"></strong>
+        sebagai <strong id="resume-name"></strong>.
+      </p>
+      <div class="flex gap-2">
+        <button type="button" id="btn-resume" class="btn btn-primary text-sm flex-1">Lanjutkan</button>
+        <button type="button" id="btn-resume-clear" class="btn btn-secondary text-sm">Keluar</button>
+      </div>
+    </div>
+
+    <!-- Gabung ke room kuis -->
+    <form id="form-member-join" class="text-left" autocomplete="off" novalidate>
+      <h2 class="text-lg font-semibold mb-4 text-left">Gabung Kuis</h2>
+      <div class="flex flex-col gap-4 text-left">
+        <div>
+          <label class="field-label" for="member-room-code">KODE RUANG (ROOM CODE)</label>
+          <input type="text" id="member-room-code" class="input-field code-input mt-1" placeholder="Contoh: ABCD" maxlength="10"
+                 autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="go">
+        </div>
+        <p id="member-join-error" class="form-error hidden" role="alert"></p>
+        <button type="submit" id="btn-member-join" class="btn btn-primary w-full mt-2">Gabung Kuis</button>
+      </div>
+    </form>
+
+    <div class="divider-label">
+      <hr>
+      <span>ATAU</span>
+    </div>
+
+    <button type="button" id="btn-logout" class="btn btn-danger w-full text-sm">Logout</button>
+
+    <div class="mt-8 text-xs text-gray-500">
+      &copy; 2026 Assessment System. All rights reserved.
+    </div>
+  </main>
+
+  <!-- Scripts -->
+  <script src="js/common.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/member.js"></script>
+</body>
+</html>

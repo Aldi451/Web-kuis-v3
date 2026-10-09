@@ -16,6 +16,8 @@ let hostPollTimer = null;
 let countdownTimer = null;
 let hostClockOffsetMs = 0;
 let timeUpAnnounced = false;
+let memberUsers = [];          // daftar akun Member (untuk roster kuis)
+let roomMembers = [];          // roster room aktif [{user_id, username, level}]
 const ACTIVE_ROOM_KEY = 'host_active_room';
 // Level yang jumlahnya sudah diubah Host secara manual (yang belum diubah mengikuti saran otomatis)
 const countTouched = { easy: false, normal: false, hard: false };
@@ -41,10 +43,20 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize Question Bank
   loadQuestionBank();
   loadHistoryList();
+  loadMemberUsers();
 
   // Create Quiz Event
   $('btn-generate-quiz').addEventListener('click', createQuizRoom);
   $('btn-generate-quiz-bottom').addEventListener('click', createQuizRoom);
+
+  // Roster member: tambah member baru langsung dari halaman buat kuis
+  $('btn-member-add').addEventListener('click', addMemberInline);
+
+  // Editor roster di waiting room (tambah member sebelum kuis dimulai)
+  $('btn-wait-roster-add').addEventListener('click', addRoomMemberFromEditor);
+
+  // Salin link sesi di layar monitoring
+  $('btn-copy-join-monitor').addEventListener('click', copyJoinLink);
 
   // Start / Finish Quiz Event
   $('btn-start-quiz').addEventListener('click', startQuiz);
@@ -268,6 +280,9 @@ async function createQuizRoom() {
   const buttons = [$('btn-generate-quiz'), $('btn-generate-quiz-bottom')];
   buttons.forEach((button) => window.UI.setBusy(button, true, 'Membuat room...'));
 
+  // Roster: member yang ikut kuis ini + level soal masing-masing
+  const members = getSelectedMembers();
+
   // Save room details to API
   try {
     const room = await window.API.createRoom({
@@ -277,7 +292,8 @@ async function createQuizRoom() {
       question_ids: questionIds,
       question_mode: questionMode,
       level_counts: levelCounts,
-      created_by: window.Auth.getCurrentUser().username
+      created_by: window.Auth.getCurrentUser().username,
+      members: members
     });
     await activateRoom(room);
   } catch (error) {
@@ -285,6 +301,199 @@ async function createQuizRoom() {
   } finally {
     buttons.forEach((button) => window.UI.setBusy(button, false));
   }
+}
+
+// ───────────────────────── Roster Member (siapa ikut kuis & levelnya) ─────────────────────────
+
+async function loadMemberUsers() {
+  try {
+    memberUsers = await window.API.getUsers('Member');
+  } catch (err) {
+    console.error('Gagal memuat daftar member:', err);
+    memberUsers = [];
+  }
+  renderMemberRosterList();
+  if (activeRoom) renderWaitRosterEditor();
+}
+
+// Daftar member untuk halaman "Buat Kuis": checkbox + username + pilihan level
+function renderMemberRosterList() {
+  const container = $('member-roster-list');
+  if (!container) return;
+  if (!memberUsers.length) {
+    container.innerHTML = '<p class="text-gray-500 text-sm">Belum ada akun Member. Tambahkan lewat form di bawah atau Admin Dashboard.</p>';
+  } else {
+    container.innerHTML = '';
+    memberUsers.forEach((member) => {
+      const row = document.createElement('div');
+      row.className = 'member-row';
+      row.innerHTML = `
+        <input type="checkbox" id="member-chk-${member.id}" class="member-chk" data-user-id="${Number(member.id)}"
+               style="width: 22px; height: 22px; flex: 0 0 auto;" aria-label="Pilih member ${window.escapeHTML(member.username)}">
+        <label for="member-chk-${member.id}" class="flex-1 text-sm font-semibold text-gray-200"
+               style="min-width: 0; overflow-wrap: anywhere;">${window.escapeHTML(member.username)}</label>
+        <select class="input-field member-level" data-user-id="${Number(member.id)}" aria-label="Level ${window.escapeHTML(member.username)}"
+                style="width: 7.5rem; background-color: #0f172a;">
+          <option value="easy">Easy</option>
+          <option value="normal" selected>Normal</option>
+          <option value="hard">Hard</option>
+        </select>
+      `;
+      row.querySelector('.member-chk').addEventListener('change', updateMemberRosterSummary);
+      row.querySelector('.member-level').addEventListener('change', updateMemberRosterSummary);
+      container.appendChild(row);
+    });
+  }
+  updateMemberRosterSummary();
+}
+
+function updateMemberRosterSummary() {
+  const box = $('member-roster-summary');
+  if (!box) return;
+  const selected = getSelectedMembers();
+  if (!selected.length) {
+    box.textContent = 'Roster kosong: semua peserta bisa gabung saat scan barcode.';
+    return;
+  }
+  const counts = { easy: 0, normal: 0, hard: 0 };
+  selected.forEach((m) => { counts[m.level] += 1; });
+  box.textContent = `${selected.length} member terpilih (${window.Levels.countsText(counts)}).`;
+}
+
+// Member yang dicentang beserta levelnya -> dikirim saat membuat room
+function getSelectedMembers() {
+  const members = [];
+  document.querySelectorAll('.member-chk:checked').forEach((checkbox) => {
+    const userId = Number(checkbox.getAttribute('data-user-id'));
+    const levelSelect = document.querySelector(`.member-level[data-user-id="${userId}"]`);
+    members.push({ user_id: userId, level: levelSelect ? levelSelect.value : 'normal' });
+  });
+  return members;
+}
+
+// Tambah akun Member baru langsung dari halaman buat kuis (Host butuh cepat sebelum kuis)
+async function addMemberInline() {
+  const username = $('member-add-username').value.trim();
+  const password = $('member-add-password').value;
+  if (!username || !password) {
+    window.UI.alert('Username dan password member wajib diisi.');
+    return;
+  }
+  const button = $('btn-member-add');
+  window.UI.setBusy(button, true, 'Menyimpan...');
+  try {
+    await window.API.register(username, password, 'Member');
+    $('member-add-username').value = '';
+    $('member-add-password').value = '';
+    window.UI.toast(`Member "${username}" ditambahkan. Centang untuk memasukkannya ke kuis ini.`, 'success');
+    await loadMemberUsers();
+  } catch (err) {
+    window.UI.alert('Gagal menambahkan member: ' + err.message);
+  } finally {
+    window.UI.setBusy(button, false);
+  }
+}
+
+// ── Roster room aktif (waiting room) ──
+
+async function loadRoomMembers(code) {
+  try {
+    roomMembers = await window.API.getRoomMembers(code);
+  } catch (err) {
+    console.error('Gagal memuat roster room:', err);
+    roomMembers = [];
+  }
+  renderWaitRoster();
+  renderWaitRosterEditor();
+}
+
+function renderWaitRoster() {
+  const list = $('wait-roster-list');
+  if (!list) return;
+  setText('wait-roster-count', `${roomMembers.length} Member`);
+  if (!roomMembers.length) {
+    list.innerHTML = '<li class="text-gray-500 text-sm text-center py-4">Belum ada member terdaftar (semua peserta bisa gabung).</li>';
+    return;
+  }
+  list.innerHTML = '';
+  roomMembers.forEach((member) => {
+    const li = document.createElement('li');
+    li.className = 'glass-panel p-3 flex justify-between items-center bg-opacity-30 border-gray-800 gap-2';
+    li.innerHTML = `
+      <span class="font-semibold text-gray-200" style="min-width: 0; overflow-wrap: anywhere;">${window.escapeHTML(member.username)}</span>
+      <span class="flex items-center gap-2" style="flex: 0 0 auto;">
+        ${window.Levels.badge(member.level)}
+        <button type="button" class="btn btn-danger text-xs py-1 px-3 btn-roster-remove" data-user-id="${Number(member.user_id)}"
+                data-name="${window.escapeHTML(member.username)}" style="min-height: 38px;">Hapus</button>
+      </span>
+    `;
+    li.querySelector('.btn-roster-remove').addEventListener('click', () => removeRoomMember(member));
+    list.appendChild(li);
+  });
+}
+
+// Select "tambah member" hanya berisi member yang BELUM ada di roster
+function renderWaitRosterEditor() {
+  const select = $('wait-roster-add-select');
+  if (!select) return;
+  const inRoster = new Set(roomMembers.map((m) => Number(m.user_id)));
+  const candidates = memberUsers.filter((m) => !inRoster.has(Number(m.id)));
+  select.innerHTML = '';
+  if (!candidates.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = memberUsers.length ? 'Semua member sudah terdaftar' : 'Belum ada akun Member';
+    select.appendChild(option);
+    select.disabled = true;
+    $('btn-wait-roster-add').disabled = true;
+    return;
+  }
+  select.disabled = false;
+  $('btn-wait-roster-add').disabled = false;
+  candidates.forEach((member) => {
+    const option = document.createElement('option');
+    option.value = String(member.id);
+    option.textContent = member.username;
+    select.appendChild(option);
+  });
+}
+
+async function saveRoomMembers() {
+  if (!activeRoom) return;
+  try {
+    const result = await window.API.setRoomMembers(activeRoom.id, roomMembers.map((m) => ({ user_id: m.user_id, level: m.level })));
+    roomMembers = result.members || [];
+    renderWaitRoster();
+    renderWaitRosterEditor();
+    window.UI.toast('Roster kuis diperbarui.', 'success');
+  } catch (err) {
+    window.UI.alert('Gagal memperbarui roster: ' + err.message);
+    await loadRoomMembers(activeRoom.id); // kembalikan tampilan ke data server
+  }
+}
+
+async function addRoomMemberFromEditor() {
+  const select = $('wait-roster-add-select');
+  const userId = Number(select.value);
+  if (!userId) {
+    window.UI.alert('Pilih member yang akan ditambahkan.');
+    return;
+  }
+  const level = $('wait-roster-add-level').value;
+  const member = memberUsers.find((m) => Number(m.id) === userId);
+  roomMembers.push({ user_id: userId, username: member ? member.username : `#${userId}`, level });
+  await saveRoomMembers();
+}
+
+async function removeRoomMember(member) {
+  const ok = await window.UI.confirm({
+    title: 'Hapus member dari kuis ini?',
+    message: `Member "${member.username}" (level ${window.Levels.label(member.level)}) tidak bisa lagi scan & gabung ke kuis ini.`,
+    confirmText: 'Hapus', cancelText: 'Batal', danger: true
+  });
+  if (!ok) return;
+  roomMembers = roomMembers.filter((m) => Number(m.user_id) !== Number(member.user_id));
+  await saveRoomMembers();
 }
 
 // ───────────────────────── Room aktif (waiting room & monitoring) ─────────────────────────
@@ -299,6 +508,7 @@ async function activateRoom(room, options = {}) {
   renderRoomHeader(room);
   $('active-rooms-chooser').classList.add('hidden');
   await prepareJoinInfo();
+  await loadRoomMembers(room.id);
 
   // Subscribe to realtime updates (peserta masuk/keluar, jawaban terkirim) + sinkron ulang saat tersambung kembali
   window.RealtimeManager.connect(room.id, {
@@ -338,6 +548,12 @@ function clearActiveRoom() {
   $('wait-participants-list').innerHTML = '<li class="text-gray-500 text-sm text-center py-4">Menunggu peserta masuk...</li>';
   setText('monitor-room-info', 'Room: -');
   setText('monitor-countdown', '--:--');
+  $('monitor-qr-box').textContent = 'QR Code';
+  setText('monitor-join-url', '-');
+  roomMembers = [];
+  setText('wait-roster-count', '0 Member');
+  $('wait-roster-list').innerHTML = '<li class="text-gray-500 text-sm text-center py-4">Belum ada member terdaftar (semua peserta bisa gabung).</li>';
+  $('wait-roster-editor').classList.add('hidden');
 }
 
 function renderRoomHeader(room) {
@@ -349,6 +565,8 @@ function renderRoomHeader(room) {
 
   const startBtn = $('btn-start-quiz');
   $('btn-cancel-room').classList.toggle('hidden', room.status !== 'Waiting');
+  // Roster hanya bisa diubah sebelum kuis dimulai
+  $('wait-roster-editor').classList.toggle('hidden', room.status !== 'Waiting');
   if (room.status === 'On Progress') {
     setText('wait-quiz-status', 'STATUS : ON PROGRESS - KUIS SEDANG BERJALAN');
     startBtn.disabled = true;
@@ -468,6 +686,9 @@ function renderJoinInfo() {
   window.QRHelper.render($('wait-qrcode'), url, 200);
   $('btn-share-join').classList.toggle('hidden', typeof navigator.share !== 'function');
 
+  // Link & barcode sesi yang sama juga tampil di layar monitoring (muncul saat kuis siap dimulai)
+  renderMonitorBarcode(url);
+
   const warning = $('join-url-warning');
   const hint = $('join-url-hint');
   const isPublic = /^https:\/\//i.test(joinBases[joinBaseIndex]) && !loopbackOnly;
@@ -479,10 +700,18 @@ function renderJoinInfo() {
     warning.classList.add('hidden');
   }
   hint.textContent = isPublic
-    ? 'Peserta bisa membuka link ini dari jaringan mana pun, atau mengetik kode room di halaman utama.'
+    ? 'Member login lalu scan barcode ini untuk gabung (bisa juga saat kuis sudah berjalan).'
     : joinBases.length > 1
-      ? 'Peserta harus di WiFi yang sama dengan komputer ini. Jika QR tidak bisa dibuka di HP, pilih alamat lain di atas.'
-      : 'Peserta harus di WiFi yang sama dengan komputer ini. Atau ketik kode room di halaman utama.';
+      ? 'Member harus di WiFi yang sama dengan komputer ini, login, lalu scan barcode. Jika QR tidak bisa dibuka di HP, pilih alamat lain di atas.'
+      : 'Member harus di WiFi yang sama dengan komputer ini, login, lalu scan barcode untuk gabung.';
+}
+
+// Link & barcode sesi (monitoring): link hasil generate saat Host siap memulai pertanyaan
+function renderMonitorBarcode(url) {
+  const box = $('monitor-qr-box');
+  if (!box) return;
+  window.QRHelper.render(box, url, 120);
+  setText('monitor-join-url', url);
 }
 
 async function copyJoinLink() {

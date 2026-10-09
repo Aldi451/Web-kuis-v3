@@ -23,7 +23,7 @@ import string
 import urllib.parse as urlparse
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
@@ -61,7 +61,10 @@ def _resolve_sqlite_path() -> str:
 SQLITE_FILE = _resolve_sqlite_path()
 
 ROOM_STATUSES = ("Waiting", "On Progress", "Finished")
-USER_ROLES = ("Admin", "Host")
+# Member = peserta (pendengar) yang akunnya dibuat Admin/Host. Member login lalu scan barcode room
+# untuk mengerjakan kuis; soalnya diacak sesuai level yang ditetapkan Host (lihat room_members).
+USER_ROLES = ("Admin", "Host", "Member")
+MEMBER_ROLE = "Member"
 
 # Level soal ditentukan oleh Host/Admin saat membuat soal (urutan tuple = urutan tampil, mudah -> sulit).
 QUESTION_LEVELS = ("easy", "normal", "hard")
@@ -387,9 +390,40 @@ SCHEMA_STATEMENTS = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    # Roster kuis: daftar akun Member yang diizinkan ikut kuis tertentu + level soal untuknya.
+    # Host memilih saat membuat kuis (bisa diubah selama room masih Waiting).
+    """
+    CREATE TABLE IF NOT EXISTS room_members (
+        room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES user_roles(id) ON DELETE CASCADE,
+        level TEXT NOT NULL DEFAULT 'normal',
+        PRIMARY KEY (room_id, user_id)
+    )
+    """,
+    # Token sesi login (dipakai antara lain untuk menghubungkan peserta yang scan barcode dengan akunnya)
+    """
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES user_roles(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    # Riwayat soal yang PERNAH dikerjakan (ditugaskan) ke sebuah akun Member, lintas semua room.
+    # Dipakai anti-nyontek: soal yang sudah pernah muncul untuk member tidak diundi lagi,
+    # jadi member tidak bisa mengulang soal (meski tema pembahasannya sama) di kuis berikutnya.
+    """
+    CREATE TABLE IF NOT EXISTS member_seen_questions (
+        user_id INTEGER NOT NULL REFERENCES user_roles(id) ON DELETE CASCADE,
+        question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, question_id)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_participants_room ON participants(room_id)",
     "CREATE INDEX IF NOT EXISTS idx_answers_participant ON answers(participant_id)",
     "CREATE INDEX IF NOT EXISTS idx_room_questions_room ON room_questions(room_id)",
+    "CREATE INDEX IF NOT EXISTS idx_room_members_room ON room_members(room_id)",
+    "CREATE INDEX IF NOT EXISTS idx_member_seen_user ON member_seen_questions(user_id)",
 ]
 
 
@@ -409,6 +443,9 @@ def init_db():
             _ensure_column(cursor, "questions", "level", "TEXT NOT NULL DEFAULT 'normal'")
             _ensure_column(cursor, "rooms", "question_mode", "TEXT NOT NULL DEFAULT 'fixed'")
             _ensure_column(cursor, "rooms", "level_counts", "TEXT")
+            # Peserta terhubung ke akun Member (login) + level yang ditetapkan Host untuknya
+            _ensure_column(cursor, "participants", "user_id", "INTEGER")
+            _ensure_column(cursor, "participants", "assigned_level", "TEXT")
 
             cursor.execute(
                 """
@@ -522,7 +559,7 @@ def generate_room_code():
 
 
 def create_room(title: str, duration: int, question_ids: list, passing_grade: int = 70, created_by: str = "Host",
-                question_mode: str = "fixed", level_counts: dict = None):
+                question_mode: str = "fixed", level_counts: dict = None, members: list = None):
     """
     Membuat room baru dengan soal-soal dari question bank.
     question_ids: list[int] - ID soal dari tabel questions (untuk mode "random" ini adalah POOL soal).
@@ -530,6 +567,10 @@ def create_room(title: str, duration: int, question_ids: list, passing_grade: in
       "fixed"  - semua peserta mengerjakan semua soal terpilih (perilaku lama)
       "random" - tiap peserta mendapat soal acak yang berbeda sesuai level_counts, mis.
                  {"easy": 3, "normal": 3, "hard": 2} = 3 soal easy + 3 normal + 2 hard per peserta.
+    members: daftar roster [{"user_id": int, "level": "easy"|"normal"|"hard"}, ...] - akun Member yang
+             diizinkan ikut kuis ini. Saat member itu scan barcode & login, soalnya diundi dari level
+             yang ditetapkan Host (mode "random"). Raise ValueError jika user bukan Member / level tidak
+             valid / soal di level itu kurang untuk jumlah soal per peserta.
     Raise ValueError jika soal kosong / ada soal yang tidak ditemukan / jumlah per level melebihi soal yang dipilih.
     """
     ids = list(dict.fromkeys(int(q) for q in question_ids))  # hapus duplikat, urutan dipertahankan
@@ -562,10 +603,157 @@ def create_room(title: str, duration: int, question_ids: list, passing_grade: in
                         "INSERT INTO room_questions (room_id, question_id, sort_order) VALUES (%s, %s, %s)",
                         (code, q_id, order),
                     )
+                if members:
+                    roster = validate_room_members(cursor, members)
+                    if counts is not None:
+                        _check_roster_levels_supported(roster, [row["level"] for row in pool], sum(counts.values()))
+                    _insert_room_members(cursor, code, roster)
             return code
         except UNIQUE_ERRORS:
             continue
     raise RuntimeError("Gagal membuat kode room yang unik. Coba lagi.")
+
+
+# ─────────────────────────────────────────────
+# ROSTER MEMBER (siapa saja yang ikut kuis & levelnya)
+# ─────────────────────────
+
+def validate_room_members(cursor, members) -> list:
+    """
+    Validasi roster member: setiap user_id harus akun dengan role Member, level harus easy/normal/hard,
+    dan tidak boleh ada user_id ganda. Return daftar [{user_id, level}] yang sudah dinormalisasi.
+    Raise ValueError dengan pesan yang bisa dibaca Host.
+    """
+    if not members:
+        return []
+    roster = []
+    seen_users = set()
+    for item in members:
+        try:
+            user_id = int(item.get("user_id"))
+        except (TypeError, ValueError, AttributeError):
+            raise ValueError("Data member tidak valid: user_id harus berupa angka.")
+        if user_id in seen_users:
+            raise ValueError(f"Member dengan user_id {user_id} terdaftar dua kali di roster.")
+        seen_users.add(user_id)
+        cursor.execute("SELECT id, username, role FROM user_roles WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise ValueError(f"User dengan ID {user_id} tidak ditemukan.")
+        if user["role"] != MEMBER_ROLE:
+            raise ValueError(f"Akun \"{user['username']}\" bukan Member (role: {user['role']}). Roster hanya bisa berisi akun Member.")
+        level = normalize_level(item.get("level"), default=DEFAULT_LEVEL)
+        roster.append({"user_id": user_id, "username": user["username"], "level": level})
+    return roster
+
+
+def _check_roster_levels_supported(roster: list, pool_levels: list, per_participant: int):
+    """
+    Mode acak + roster: setiap member mengerjakan 'per_participant' soal yang SEMUA dari level yang
+    ditetapkan Host. Pastikan pool soal di tiap level yang dipakai roster mencukupi.
+    """
+    available = {level: 0 for level in QUESTION_LEVELS}
+    for level in pool_levels:
+        available[level if level in available else DEFAULT_LEVEL] += 1
+    for level in sorted({m["level"] for m in roster}):
+        if available[level] < per_participant:
+            raise ValueError(
+                f"Member level {LEVEL_LABELS[level]} mengerjakan {per_participant} soal, tetapi soal "
+                f"{LEVEL_LABELS[level]} yang dipilih hanya {available[level]}. Centang lebih banyak soal "
+                f"{LEVEL_LABELS[level]} atau kurangi jumlah soal per peserta."
+            )
+
+
+def _insert_room_members(cursor, room_id: str, roster: list):
+    for member in roster:
+        cursor.execute(
+            "INSERT INTO room_members (room_id, user_id, level) VALUES (%s, %s, %s) "
+            "ON CONFLICT (room_id, user_id) DO UPDATE SET level = EXCLUDED.level",
+            (room_id, member["user_id"], member["level"]),
+        )
+
+
+def set_room_members(room_id: str, members: list):
+    """Ganti seluruh roster room (dipakai Host mengubah daftar member saat room masih Waiting)."""
+    code = (room_id or "").strip().upper()
+    with _transaction() as cursor:
+        cursor.execute("SELECT status FROM rooms WHERE id = %s", (code,))
+        row = cursor.fetchone()
+        if not row:
+            return None, "Room tidak ditemukan"
+        if row["status"] != "Waiting":
+            return None, "Roster hanya bisa diubah saat kuis belum dimulai."
+        roster = validate_room_members(cursor, members)
+        # Validasi jumlah soal per level (mode acak) sebelum menulis
+        cursor.execute(
+            "SELECT q.level FROM room_questions rq JOIN questions q ON q.id = rq.question_id WHERE rq.room_id = %s",
+            (code,),
+        )
+        pool_levels = [r["level"] for r in cursor.fetchall()]
+        cursor.execute("SELECT question_mode, level_counts FROM rooms WHERE id = %s", (code,))
+        room = cursor.fetchone()
+        if roster and room and (room["question_mode"] or "fixed") == "random":
+            _check_roster_levels_supported(roster, pool_levels, sum(parse_level_counts(room["level_counts"]).values()))
+        cursor.execute("DELETE FROM room_members WHERE room_id = %s", (code,))
+        _insert_room_members(cursor, code, roster)
+    return get_room_members(code), None
+
+
+def get_room_members(room_id: str):
+    """Roster room: [{user_id, username, level}] diurutkan sesuai username."""
+    with _transaction() as cursor:
+        cursor.execute(
+            """
+            SELECT rm.user_id, u.username, rm.level FROM room_members rm
+            JOIN user_roles u ON u.id = rm.user_id
+            WHERE rm.room_id = %s ORDER BY LOWER(u.username)
+            """,
+            ((room_id or "").strip().upper(),),
+        )
+        return [dict(r) for r in cursor.fetchall()]
+
+
+def get_room_member_level(room_id: str, user_id: int):
+    """Level yang ditetapkan Host untuk member ini di room (None jika tidak terdaftar / tanpa roster)."""
+    with _transaction() as cursor:
+        cursor.execute(
+            "SELECT level FROM room_members WHERE room_id = %s AND user_id = %s",
+            ((room_id or "").strip().upper(), int(user_id)),
+        )
+        row = cursor.fetchone()
+        return row["level"] if row else None
+
+
+def room_has_members(room_id: str) -> bool:
+    with _transaction() as cursor:
+        cursor.execute("SELECT COUNT(*) AS n FROM room_members WHERE room_id = %s", ((room_id or "").strip().upper(),))
+        return (cursor.fetchone()["n"] or 0) > 0
+
+
+# ─────────────────────────────────────────────
+# RIWAYAT SOAL MEMBER (anti soal berulang antar kuis)
+# ─────────────────────────
+
+def _record_seen_questions(cursor, user_id: int, question_ids: list):
+    """Catat soal yang pernah ditugaskan ke akun member (dipanggil saat soal diundi / room fixed diikuti)."""
+    for qid in dict.fromkeys(int(q) for q in question_ids):
+        cursor.execute(
+            "INSERT INTO member_seen_questions (user_id, question_id, first_seen_at) VALUES (%s, %s, %s) "
+            "ON CONFLICT (user_id, question_id) DO NOTHING",
+            (int(user_id), qid, utcnow()),
+        )
+
+
+def _seen_question_ids(cursor, user_id: int) -> set:
+    """Semua soal yang pernah dikerjakan (ditugaskan) ke akun member ini, lintas semua room (1 koneksi aktif)."""
+    cursor.execute("SELECT question_id FROM member_seen_questions WHERE user_id = %s", (int(user_id),))
+    return {row["question_id"] for row in cursor.fetchall()}
+
+
+def get_seen_question_ids(user_id: int) -> set:
+    """Semua soal yang pernah dikerjakan (ditugaskan) ke akun member ini, lintas semua room."""
+    with _transaction() as cursor:
+        return _seen_question_ids(cursor, user_id)
 
 
 def _attach_question_ids(cursor, rooms: list):
@@ -752,7 +940,7 @@ def _token_matches(stored: str, supplied: str) -> bool:
     return bool(stored) and bool(supplied) and secrets.compare_digest(str(stored), str(supplied))
 
 
-def join_participant(room_id: str, name: str, department: str = "-", token: str = None):
+def join_participant(room_id: str, name: str, department: str = "-", token: str = None, user_id: int = None):
     """
     Peserta masuk ke room.
     Return (participant_dict, error, resumed).
@@ -761,6 +949,14 @@ def join_participant(room_id: str, name: str, department: str = "-", token: str 
     ter-refresh / browser di-restart, token itu dipakai untuk MELANJUTKAN sesi yang sama
     (resumed=True) tanpa terkena "nama sudah dipakai". Orang lain yang mengetik nama yang sama
     tanpa token tetap ditolak.
+
+    user_id: akun Member yang login (didapat dari token sesi login). Dipakai untuk:
+      * mencatat peserta sebagai milik akun tersebut (laporan & anti-nyontek)
+      * menegakkan roster: jika room punya roster (room_members), HANYA member terdaftar yang boleh
+        gabung; pesan tanpa akun ditolak. Member boleh scan & gabung MESKI kuis sudah berjalan
+        (status On Progress) - soalnya langsung diundi sesuai level roster.
+      * mengatur level soal: level roster member dipakai sebagai satu-satunya level soal undian
+      * anti-pengulangan: soal yang pernah dikerjakan akun ini di room lain tidak diundi lagi.
 
     participant_dict['question_ids'] = soal yang HARUS dikerjakan peserta ini, berurutan:
       * room "fixed"  -> soal room (sama untuk semua peserta)
@@ -781,29 +977,87 @@ def join_participant(room_id: str, name: str, department: str = "-", token: str 
                 return None, "Room tidak ditemukan", False
             mode = room.get("question_mode") or "fixed"
 
-            cursor.execute(
-                "SELECT * FROM participants WHERE room_id = %s AND LOWER(name) = LOWER(%s)",
-                (code, clean_name),
-            )
-            existing = cursor.fetchone()
-            if existing:
-                if _token_matches(existing.get("token"), token):
-                    participant = dict(existing)
-                    participant["question_ids"] = _assigned_question_ids(cursor, participant, mode)
-                    return participant, None, True
-                return None, "Nama sudah digunakan dalam room ini", False
+            # ── Cek akun member (login) & roster ──
+            member = None
+            assigned_level = None
+            if user_id is not None:
+                cursor.execute("SELECT id, username, role FROM user_roles WHERE id = %s", (int(user_id),))
+                member = cursor.fetchone()
+                if not member:
+                    return None, "Akun tidak ditemukan. Silakan login ulang.", False
+                if member["role"] != MEMBER_ROLE:
+                    return None, "Hanya akun Member yang bisa bergabung lewat login.", False
+                cursor.execute("SELECT COUNT(*) AS n FROM room_members WHERE room_id = %s", (code,))
+                has_roster = (cursor.fetchone()["n"] or 0) > 0
+                if has_roster:
+                    cursor.execute(
+                        "SELECT level FROM room_members WHERE room_id = %s AND user_id = %s",
+                        (code, int(user_id)),
+                    )
+                    roster_row = cursor.fetchone()
+                    if not roster_row:
+                        return None, "Akun Anda tidak terdaftar pada kuis ini. Hubungi Host/Admin.", False
+                    assigned_level = roster_row["level"]
+            else:
+                cursor.execute("SELECT COUNT(*) AS n FROM room_members WHERE room_id = %s", (code,))
+                if (cursor.fetchone()["n"] or 0) > 0:
+                    return None, ("Kuis ini khusus member terdaftar. Silakan login sebagai Member, "
+                                   "lalu scan ulang barcode room."), False
 
+            # ── Lanjutkan sesi yang sudah ada (refresh / scan ulang / HP restart) ──
+            existing = None
+            if user_id is not None:
+                # Akun yang sama (login) -> lanjutkan sesi walau nama browser/HP berbeda
+                cursor.execute(
+                    "SELECT * FROM participants WHERE room_id = %s AND user_id = %s",
+                    (code, int(user_id)),
+                )
+                existing = cursor.fetchone()
+            if existing is None:
+                cursor.execute(
+                    "SELECT * FROM participants WHERE room_id = %s AND LOWER(name) = LOWER(%s)",
+                    (code, clean_name),
+                )
+                by_name = cursor.fetchone()
+                if by_name is not None:
+                    if user_id is not None and by_name.get("user_id") not in (None, int(user_id)):
+                        return None, "Nama sudah digunakan dalam room ini", False
+                    # Token cocok -> lanjutkan. Akun member yang sama (user_id) -> lanjutkan & kaitkan.
+                    # Tanpa itu (orang lain mengetik nama yang sama) -> ditolak.
+                    if _token_matches(by_name.get("token"), token) or \
+                            (user_id is not None and by_name.get("user_id") in (None, int(user_id))):
+                        existing = by_name
+                    else:
+                        return None, "Nama sudah digunakan dalam room ini", False
+            if existing:
+                if existing.get("user_id") is None and user_id is not None:
+                    # Peserta lama (sebelum fitur member) kini login: kaitkan ke akunnya
+                    cursor.execute(
+                        "UPDATE participants SET user_id = %s, assigned_level = %s WHERE id = %s",
+                        (int(user_id), existing.get("assigned_level"), existing["id"]),
+                    )
+                    existing["user_id"] = int(user_id)
+                participant = dict(existing)
+                participant["question_ids"] = _assigned_question_ids(cursor, participant, mode)
+                return participant, None, True
+
+            # ── Peserta baru: hanya boleh saat Waiting, kecuali member (boleh menyusul saat On Progress) ──
             if room["status"] not in ("Waiting", "WAITING"):
-                return None, "Kuis sudah berjalan atau selesai", False
+                if user_id is None or room["status"] != "On Progress":
+                    return None, "Kuis sudah berjalan atau selesai", False
 
             new_token = secrets.token_urlsafe(16)
             cursor.execute(
-                "INSERT INTO participants (room_id, name, department, joined_at, token) "
-                "VALUES (%s, %s, %s, %s, %s) RETURNING *",
-                (code, clean_name, clean_dept, utcnow(), new_token),
+                "INSERT INTO participants (room_id, name, department, joined_at, token, user_id, assigned_level) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                (code, clean_name, clean_dept, utcnow(), new_token,
+                 int(user_id) if user_id is not None else None, assigned_level),
             )
             participant = dict(cursor.fetchone())
-            participant["question_ids"] = _assign_questions(cursor, participant, mode, room.get("level_counts"))
+            participant["question_ids"] = _assign_questions(
+                cursor, participant, mode, room.get("level_counts"),
+                only_level=assigned_level, user_id=user_id,
+            )
             return participant, None, False
     except UNIQUE_ERRORS:
         return None, "Nama sudah digunakan dalam room ini", False
@@ -936,10 +1190,16 @@ def _question_rows_for(cursor, ids: list) -> dict:
     return rows
 
 
-def _draw_question_ids(cursor, room_code: str, counts: dict) -> list:
+def _draw_question_ids(cursor, room_code: str, counts: dict, only_level: str = None, exclude_ids: set = None) -> list:
     """
     Undi soal untuk SATU peserta baru: ambil acak sejumlah counts[level] soal dari tiap level
     (dari soal yang dipilih Host untuk room ini), lalu acak urutannya.
+
+    only_level: jika diisi (level roster member), PESERTA INI hanya mendapat soal dari level itu,
+                sejumlah total seluruh counts (level lain 0).
+    exclude_ids: soal yang sudah pernah dikerjakan akun member ini di room lain (anti-nyontek).
+                 Soal diutamakan dari yang BELUM pernah dilihat; jika tidak cukup, baru diisi dari
+                 yang sudah pernah dilihat (soal tetap bisa dikerjakan, tidak membatalkan undian).
 
     Supaya peserta benar-benar mendapat soal yang berbeda, undian diulang jika kombinasi soalnya
     persis sama dengan peserta lain di room ini (selama masih ada kombinasi lain yang mungkin).
@@ -955,7 +1215,18 @@ def _draw_question_ids(cursor, room_code: str, counts: dict) -> list:
     pool = {level: [] for level in QUESTION_LEVELS}
     for row in cursor.fetchall():
         pool[row["level"] if row["level"] in pool else DEFAULT_LEVEL].append(row["id"])
-    take = {level: min(counts.get(level, 0), len(pool[level])) for level in QUESTION_LEVELS}
+
+    if only_level is not None:
+        total = sum(counts.get(level, 0) for level in QUESTION_LEVELS)
+        counts = {level: (total if level == only_level else 0) for level in QUESTION_LEVELS}
+    exclude = set(exclude_ids or ())
+
+    # Kandidat per level: utamakan soal yang belum pernah dikerjakan member ini
+    candidates = {}
+    for level in QUESTION_LEVELS:
+        unseen = [qid for qid in pool[level] if qid not in exclude]
+        candidates[level] = unseen if len(unseen) >= min(counts.get(level, 0), len(pool[level])) else pool[level]
+    take = {level: min(counts.get(level, 0), len(candidates[level])) for level in QUESTION_LEVELS}
 
     cursor.execute(
         """
@@ -970,30 +1241,53 @@ def _draw_question_ids(cursor, room_code: str, counts: dict) -> list:
         per_participant.setdefault(row["participant_id"], set()).add(row["question_id"])
     used_sets = {frozenset(ids) for ids in per_participant.values()}
 
-    possible = math.prod(math.comb(len(pool[level]), take[level]) for level in QUESTION_LEVELS)
+    possible = math.prod(math.comb(len(candidates[level]), take[level]) for level in QUESTION_LEVELS)
     attempts = 40 if possible > len(used_sets) else 1  # >= 1 kombinasi belum terpakai -> coba hindari duplikat
     picked = []
+    best = None
     for _ in range(attempts):
         picked = []
         for level in QUESTION_LEVELS:
             if take[level]:
-                picked.extend(_rng.sample(pool[level], take[level]))
+                picked.extend(_rng.sample(candidates[level], take[level]))
         _rng.shuffle(picked)
-        if frozenset(picked) not in used_sets:
-            break
-    return picked
+        current = frozenset(picked)
+        if current in used_sets:
+            continue  # kombinasi persis sama dengan peserta lain -> buang
+        # Anti-nyontek: utamakan kombinasi yang TIDAK TUMPANG TINDIH dengan soal peserta lain;
+        # jika tidak memungkinkan (pool kecil), kombinasi yang sekadar berbeda sudah cukup.
+        disjoint = all(current.isdisjoint(other) for other in used_sets)
+        if best is None or disjoint:
+            best = picked
+            if disjoint:
+                break
+    return best if best is not None else picked
 
 
-def _assign_questions(cursor, participant: dict, mode: str, level_counts_raw) -> list:
-    """Tentukan soal untuk peserta yang BARU bergabung (random -> diundi lalu disimpan)."""
+def _assign_questions(cursor, participant: dict, mode: str, level_counts_raw,
+                      only_level: str = None, user_id: int = None) -> list:
+    """
+    Tentukan soal untuk peserta yang BARU bergabung (random -> diundi lalu disimpan).
+    only_level: level roster member (soal hanya dari level itu). user_id: jika diisi, soal hasil undian
+    dicatat sebagai "pernah dikerjakan" akun ini (anti soal berulang antar kuis).
+    """
     if mode != "random":
-        return _assigned_question_ids(cursor, participant, mode)
-    picked = _draw_question_ids(cursor, participant["room_id"], parse_level_counts(level_counts_raw))
+        ids = _assigned_question_ids(cursor, participant, mode)
+        if user_id is not None:
+            _record_seen_questions(cursor, user_id, ids)
+        return ids
+    picked = _draw_question_ids(
+        cursor, participant["room_id"], parse_level_counts(level_counts_raw),
+        only_level=only_level,
+        exclude_ids=_seen_question_ids(cursor, user_id) if user_id is not None else None,
+    )
     for order, question_id in enumerate(picked):
         cursor.execute(
             "INSERT INTO participant_questions (participant_id, question_id, sort_order) VALUES (%s, %s, %s)",
             (participant["id"], question_id, order),
         )
+    if user_id is not None:
+        _record_seen_questions(cursor, user_id, picked)
     return picked
 
 
@@ -1338,10 +1632,53 @@ def get_user_by_credentials(username: str, password: str):
         return dict(rows[0]) if len(rows) == 1 else None
 
 
-def get_all_users():
+def get_all_users(role: str = None):
     with _transaction() as cursor:
-        cursor.execute("SELECT id, username, role, created_at FROM user_roles ORDER BY username")
+        if role:
+            cursor.execute(
+                "SELECT id, username, role, created_at FROM user_roles WHERE role = %s ORDER BY username",
+                (role,),
+            )
+        else:
+            cursor.execute("SELECT id, username, role, created_at FROM user_roles ORDER BY username")
         return [dict(r) for r in cursor.fetchall()]
+
+
+# ─────────────────────────────────────────────
+# SESI LOGIN (token)
+# ─────────────────────────
+
+def create_auth_session(user_id: int) -> str:
+    """Buat token sesi login untuk satu akun. Token dipakai client saat join room sebagai Member."""
+    token = secrets.token_urlsafe(32)
+    with _transaction() as cursor:
+        # Bersihkan sesi basi (> 30 hari) sekalian agar tabel tidak membengkak
+        cursor.execute(
+            "DELETE FROM auth_sessions WHERE created_at < %s",
+            (utcnow() - timedelta(days=30),),
+        )
+        cursor.execute(
+            "INSERT INTO auth_sessions (token, user_id, created_at) VALUES (%s, %s, %s)",
+            (token, int(user_id), utcnow()),
+        )
+    return token
+
+
+def get_user_by_token(token: str):
+    """Ambil akun pemilik token sesi login (None jika token tidak dikenal)."""
+    if not token:
+        return None
+    with _transaction() as cursor:
+        cursor.execute(
+            """
+            SELECT u.id, u.username, u.role FROM auth_sessions s
+            JOIN user_roles u ON u.id = s.user_id
+            WHERE s.token = %s
+            """,
+            (token,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 
 def create_user(username: str, password: str, role: str = "Host"):
@@ -1373,6 +1710,10 @@ def create_user(username: str, password: str, role: str = "Host"):
 
 def delete_user(user_id: int):
     with _transaction() as cursor:
+        # Bersihkan data terkait akun (sesi login, roster kuis, riwayat soal) sebelum akun dihapus
+        cursor.execute("DELETE FROM auth_sessions WHERE user_id = %s", (user_id,))
+        cursor.execute("DELETE FROM room_members WHERE user_id = %s", (user_id,))
+        cursor.execute("DELETE FROM member_seen_questions WHERE user_id = %s", (user_id,))
         cursor.execute("DELETE FROM user_roles WHERE id = %s AND username != 'admin'", (user_id,))
 
 

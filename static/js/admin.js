@@ -7,15 +7,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const tableBody = document.getElementById('users-table-body');
   const formAddUser = document.getElementById('form-add-user');
 
+  function roleBadge(role) {
+    const cls = role === 'Admin' ? 'badge-pass' : role === 'Member' ? 'badge-member' : 'badge-waiting';
+    return `<span class="badge ${cls}">${window.escapeHTML(role)}</span>`;
+  }
+
   // Load and render user list
   async function loadUsers() {
-    tableBody.innerHTML = '<tr><td colspan="3" class="text-center text-gray-500 py-4">Memuat data...</td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-4">Memuat data...</td></tr>';
 
     try {
       const users = await window.API.getUsers();
 
       if (users.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="3" class="text-center text-gray-500 py-4">Tidak ada pengguna ditemukan.</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-4">Tidak ada pengguna ditemukan.</td></tr>';
         return;
       }
 
@@ -25,8 +30,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const isSelf = user.username === currentUser.username;
         const row = document.createElement('tr');
         row.innerHTML = `
+          <td data-label="ID" class="text-xs text-gray-400">#${Number(user.id)}</td>
           <td data-label="Username" class="font-medium">${window.escapeHTML(user.username)}</td>
-          <td data-label="Role"><span class="badge ${user.role === 'Admin' ? 'badge-pass' : 'badge-waiting'}">${window.escapeHTML(user.role)}</span></td>
+          <td data-label="Role">${roleBadge(user.role)}</td>
           <td class="text-right cell-actions">
             ${isSystem
               ? '<span class="text-xs text-gray-600">Sistem</span>'
@@ -62,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
     } catch (err) {
-      tableBody.innerHTML = `<tr><td colspan="3" class="text-center text-red-500 py-4">Error: ${window.escapeHTML(err.message)}</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="4" class="text-center text-red-500 py-4">Error: ${window.escapeHTML(err.message)}</td></tr>`;
     }
   }
 

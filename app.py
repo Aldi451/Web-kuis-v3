@@ -5,16 +5,29 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.gzip import GZipMiddleware
 
 import database
+import excel_import
 import netutils
+
+# python-multipart dibutuhkan endpoint upload (import Excel). Tanpa library ini FastAPI menolak
+# mendaftarkan route File, jadi daftarkan versi 501 agar aplikasi tetap bisa jalan penuh.
+try:
+    import python_multipart  # noqa: F401  (paket: python-multipart)
+    HAS_MULTIPART = True
+except ImportError:
+    try:
+        import multipart  # noqa: F401  (nama modul lama)
+        HAS_MULTIPART = True
+    except ImportError:
+        HAS_MULTIPART = False
 
 # Load environment variables
 load_dotenv(encoding="utf-8-sig")
@@ -160,6 +173,17 @@ class QuestionInput(BaseModel):
         return self
 
 
+class RoomMemberInput(BaseModel):
+    """Satu anggota roster: akun Member yang ikut kuis + level soal yang diundikan untuknya."""
+    user_id: int
+    level: str = database.DEFAULT_LEVEL
+
+    @model_validator(mode="after")
+    def check_level(self):
+        self.level = database.normalize_level(self.level)  # ValueError -> 422
+        return self
+
+
 class RoomCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     duration: int = Field(ge=1, le=600)  # duration in minutes
@@ -170,6 +194,8 @@ class RoomCreateRequest(BaseModel):
     # diambil dari question_ids sejumlah level_counts (mis. {"easy": 3, "normal": 3, "hard": 2}).
     question_mode: str = "fixed"
     level_counts: Optional[Dict[str, int]] = None
+    # Roster: akun Member yang diizinkan ikut kuis ini + level soalnya (diisi Host/Admin).
+    members: Optional[List[RoomMemberInput]] = None
 
     @model_validator(mode="after")
     def check_mode(self):
@@ -280,6 +306,10 @@ def map_participant_to_frontend(p: dict) -> dict:
         "join_time": to_iso(p.get("joined_at")),
         "submit_time": to_iso(p.get("submitted_at")),
         "submitted": p.get("submitted_at") is not None,
+        # Level yang ditetapkan Host untuk member ini (null untuk peserta biasa / tanpa roster)
+        "assigned_level": p.get("assigned_level"),
+        # True jika peserta terhubung ke akun Member (login saat scan barcode)
+        "is_member": p.get("user_id") is not None,
     }
 
 
@@ -340,7 +370,8 @@ def api_login(req: LoginRequest):
     user = database.get_user_by_credentials(req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="Username atau password salah.")
-    return user
+    # Token sesi: dipakai antara lain untuk menghubungkan Member yang scan barcode dengan akunnya
+    return {**user, "token": database.create_auth_session(user["id"])}
 
 
 @app.post("/api/auth/register")
@@ -352,8 +383,9 @@ def api_register(req: RegisterRequest):
 
 
 @app.get("/api/auth/users")
-def api_get_users():
-    users = database.get_all_users()
+def api_get_users(role: Optional[str] = Query(None)):
+    """Daftar user (opsional filter role: Admin / Host / Member). Dipakai Admin & Host (roster kuis)."""
+    users = database.get_all_users(role)
     for user in users:
         user["created_at"] = to_iso(user.get("created_at"))
     return users
@@ -426,11 +458,71 @@ def api_delete_question(q_id: int):
 
 
 # ─────────────────────────────────────────────
+# IMPORT SOAL DARI EXCEL
+# ─────────────────────────
+
+@app.get("/api/questions/import/template")
+def api_download_import_template():
+    """Unduh template Excel (.xlsx) agar Admin/Host tahu format & cara pengisian import soal."""
+    try:
+        content = excel_import.build_template_bytes()
+    except RuntimeError as e:
+        raise HTTPException(status_code=501, detail=str(e))
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{excel_import.TEMPLATE_FILENAME}"'},
+    )
+
+
+if HAS_MULTIPART:
+    @app.post("/api/questions/import")
+    async def api_import_questions(file: UploadFile = File(...)):
+        """
+        Import soal dari file Excel (.xlsx). Soal yang valid langsung masuk bank soal;
+        baris bermasalah dilaporkan (nomor baris + alasan) dan tidak di-import.
+        """
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="File kosong. Pilih file .xlsx hasil download template.")
+        try:
+            rows, errors = await run_in_threadpool(excel_import.parse_questions_excel, raw)
+        except RuntimeError as e:
+            raise HTTPException(status_code=501, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        imported = 0
+        for row in rows:
+            # create_question menormalisasi & memvalidasi lagi (level, kunci jawaban, dll.)
+            database.create_question(
+                row["question_text"], row["option_a"], row["option_b"], row["option_c"], row["option_d"],
+                row["correct_answer"], row["category"], row["question_type"], row["level"],
+            )
+            imported += 1
+        return {
+            "success": True,
+            "imported": imported,
+            "skipped": len(errors),
+            "errors": errors[:50],  # batasi agar respons tidak terlalu besar
+            "errors_truncated": max(0, len(errors) - 50),
+        }
+else:
+    @app.post("/api/questions/import")
+    async def api_import_questions_unavailable():
+        raise HTTPException(
+            status_code=501,
+            detail="Import Excel membutuhkan library python-multipart. Jalankan: pip install python-multipart",
+        )
+
+
+# ─────────────────────────────────────────────
 # ROOM ENDPOINTS
 # ─────────────────────────────────────────────
 
 @app.post("/api/rooms")
 def api_create_room(req: RoomCreateRequest):
+    members = [{"user_id": m.user_id, "level": m.level} for m in req.members] if req.members else None
     try:
         room_code = database.create_room(
             title=req.title.strip(),
@@ -440,6 +532,7 @@ def api_create_room(req: RoomCreateRequest):
             created_by=req.created_by,
             question_mode=req.question_mode,
             level_counts=req.level_counts,
+            members=members,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -447,6 +540,31 @@ def api_create_room(req: RoomCreateRequest):
     if not room:
         raise HTTPException(status_code=500, detail="Gagal mengambil room yang baru dibuat")
     return map_room_to_frontend(room)
+
+
+@app.get("/api/rooms/{code}/members")
+def api_get_room_members(code: str):
+    """Roster kuis: daftar akun Member yang diizinkan ikut + level soal masing-masing."""
+    if not database.get_room(code):
+        raise HTTPException(status_code=404, detail="Room tidak ditemukan")
+    return database.get_room_members(code)
+
+
+class RoomMembersUpdate(BaseModel):
+    members: List[RoomMemberInput] = Field(default_factory=list)
+
+
+@app.put("/api/rooms/{code}/members")
+def api_set_room_members(code: str, req: RoomMembersUpdate):
+    """Ganti roster kuis (hanya bisa saat kuis belum dimulai). Dipakai Host mengubah daftar member."""
+    members, error = database.set_room_members(
+        code, [{"user_id": m.user_id, "level": m.level} for m in req.members]
+    )
+    if error == "Room tidak ditemukan":
+        raise HTTPException(status_code=404, detail=error)
+    if error:
+        raise HTTPException(status_code=409, detail=error)
+    return {"success": True, "members": members}
 
 
 @app.get("/api/rooms/finished")
@@ -500,14 +618,22 @@ async def api_update_room_status(code: str, req: RoomStatusUpdate):
 # ─────────────────────────────────────────────
 
 @app.post("/api/rooms/join")
-async def api_join_room(req: ParticipantJoinRequest):
+async def api_join_room(
+    req: ParticipantJoinRequest,
+    x_auth_token: Optional[str] = Header(default=None),
+):
     # Find room code from room_id (which could be the room code itself)
     room = await run_in_threadpool(database.get_room, req.room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room kuis tidak ditemukan.")
 
+    # Token sesi login (X-Auth-Token): jika ada, peserta dihubungkan ke akun Member-nya.
+    # Dipakai untuk roster kuis, level soal per member, dan anti soal berulang.
+    member = await run_in_threadpool(database.get_user_by_token, x_auth_token)
+    user_id = member["id"] if member else None
+
     participant, error, resumed = await run_in_threadpool(
-        database.join_participant, room["id"], req.name, req.department or "-", req.token
+        database.join_participant, room["id"], req.name, req.department or "-", req.token, user_id
     )
     if error:
         raise HTTPException(status_code=400, detail=error)
@@ -520,6 +646,8 @@ async def api_join_room(req: ParticipantJoinRequest):
         "resumed": resumed,
         # Soal untuk peserta INI (room acak: berbeda tiap peserta, tetap sama saat sesi dilanjutkan)
         "question_ids": participant["question_ids"],
+        # Level yang ditetapkan Host untuk member ini (null jika tanpa roster / bukan member)
+        "assigned_level": participant.get("assigned_level"),
     }
 
     if not resumed:

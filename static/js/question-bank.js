@@ -347,4 +347,69 @@ document.addEventListener('DOMContentLoaded', () => {
   if (quizLevelSelect) {
     quizLevelSelect.addEventListener('change', renderQuestionListForQuiz);
   }
+
+  // ───────────── Import soal dari Excel ─────────────
+  const btnImport = document.getElementById('btn-import-excel');
+  const fileInput = document.getElementById('input-import-file');
+  const btnTemplate = document.getElementById('btn-download-template');
+
+  if (btnTemplate) {
+    btnTemplate.addEventListener('click', () => {
+      // Unduh template agar tahu format & cara pengisian (dibuat server, lengkap dengan petunjuk)
+      window.API.downloadImportTemplate();
+      window.UI.toast('Template Excel diunduh. Isi sesuai format, lalu import.', 'info', 6000);
+    });
+  }
+
+  if (btnImport && fileInput) {
+    btnImport.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = ''; // reset agar file yang sama bisa dipilih lagi
+      if (!file) return;
+      window.UI.setBusy(btnImport, true, 'Import...');
+      try {
+        const result = await window.API.uploadQuestionsImport(file);
+        showImportResult(result);
+        if (result.imported > 0) {
+          window.UI.toast(`${result.imported} soal berhasil di-import ke bank soal.`, 'success');
+        }
+        loadQuestionBank();
+      } catch (error) {
+        window.UI.alert('Gagal import Excel: ' + error.message);
+      } finally {
+        window.UI.setBusy(btnImport, false);
+      }
+    });
+  }
 });
+
+// Tampilkan hasil import: jumlah soal masuk + daftar baris bermasalah (nomor baris & alasannya)
+function showImportResult(result) {
+  const box = document.getElementById('import-result');
+  if (!box) return;
+  box.innerHTML = '';
+
+  const summary = document.createElement('p');
+  summary.className = 'font-semibold text-gray-200';
+  summary.textContent = `Import selesai: ${result.imported} soal masuk bank soal` +
+    (result.skipped ? `, ${result.skipped} baris bermasalah dilewati.` : '.');
+  box.appendChild(summary);
+
+  if (Array.isArray(result.errors) && result.errors.length) {
+    const list = document.createElement('ul');
+    list.className = 'import-error-list';
+    result.errors.forEach((item) => {
+      const li = document.createElement('li');
+      li.textContent = `Baris ${item.row}: ${item.message}`;
+      list.appendChild(li);
+    });
+    if (result.errors_truncated) {
+      const more = document.createElement('li');
+      more.textContent = `... dan ${result.errors_truncated} baris bermasalah lainnya.`;
+      list.appendChild(more);
+    }
+    box.appendChild(list);
+  }
+  box.classList.remove('hidden');
+}

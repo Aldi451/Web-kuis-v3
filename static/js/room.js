@@ -225,7 +225,10 @@ async function initializeClientSession(roomCode, name, department) {
 
   let joined;
   try {
-    joined = await window.API.joinRoom(room.id, name, department, saved && saved.token);
+    // Token sesi login (X-Auth-Token): agar server menghubungkan peserta ini ke akun Member-nya
+    // (roster kuis, level soal per member, dan anti soal berulang antar kuis).
+    const authToken = window.Auth && window.Auth.getToken ? window.Auth.getToken() : '';
+    joined = await window.API.joinRoom(room.id, name, department, saved && saved.token, authToken);
   } catch (err) {
     if (err.network || err.status >= 500) {
       setWaitStatus('Belum tersambung');
@@ -242,7 +245,8 @@ async function initializeClientSession(roomCode, name, department) {
     participant_name: joined.participant_name,
     department: joined.department,
     token: joined.token,
-    question_ids: Array.isArray(joined.question_ids) ? joined.question_ids : null
+    question_ids: Array.isArray(joined.question_ids) ? joined.question_ids : null,
+    assigned_level: joined.assigned_level || null  // level yang ditetapkan Host (roster member)
   };
   const resumedSaved = joined.resumed && saved;
   userAnswers = (resumedSaved && saved.answers) || {};
@@ -295,9 +299,15 @@ function showQuestionSetInfo() {
   const box = $('client-wait-set');
   const total = myQuestionIds().length;
   if (!box || !total) return;
-  box.textContent = clientRoom.question_mode === 'random'
-    ? `Soal diacak khusus untukmu: ${total} soal (${window.Levels.countsText(clientRoom.level_counts)})`
-    : `Jumlah soal: ${total}`;
+  if (clientParticipant && clientParticipant.assigned_level) {
+    // Member dengan level dari Host: soal hanya dari level itu, acak & tidak sama dengan peserta lain
+    box.innerHTML = `Level kamu: ${window.Levels.badge(clientParticipant.assigned_level)} — ` +
+      `${total} soal diacak khusus untukmu (berbeda dari peserta lain dan tidak mengulang soal yang pernah kamu kerjakan)`;
+  } else {
+    box.textContent = clientRoom.question_mode === 'random'
+      ? `Soal diacak khusus untukmu: ${total} soal (${window.Levels.countsText(clientRoom.level_counts)})`
+      : `Jumlah soal: ${total}`;
+  }
   box.classList.remove('hidden');
 }
 

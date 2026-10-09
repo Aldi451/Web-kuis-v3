@@ -56,10 +56,18 @@
 
     <!-- 1. QUESTION BANK SECTION -->
     <section id="section-question-bank" class="tab-content">
-      <div class="flex justify-between items-center mb-6">
+      <div class="flex justify-between items-center mb-6 gap-3" style="flex-wrap: wrap;">
         <h2 class="text-2xl font-bold text-gradient">Bank Soal</h2>
-        <button onclick="openQuestionModal()" class="btn btn-primary text-sm">+ Tambah Soal</button>
+        <div class="flex gap-2" style="flex-wrap: wrap;">
+          <button type="button" id="btn-download-template" class="btn btn-secondary text-sm">Template Excel</button>
+          <button type="button" id="btn-import-excel" class="btn btn-secondary text-sm">Import Excel</button>
+          <button onclick="openQuestionModal()" class="btn btn-primary text-sm">+ Tambah Soal</button>
+        </div>
       </div>
+      <!-- File dipilih lewat tombol "Import Excel" (accept .xlsx) -->
+      <input type="file" id="input-import-file" accept=".xlsx" class="hidden" aria-label="File Excel import soal">
+      <!-- Hasil import (jumlah masuk + baris bermasalah) -->
+      <div id="import-result" class="import-result hidden" role="status"></div>
 
       <div class="glass-panel p-6">
         <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
@@ -136,6 +144,30 @@
             </select>
           </div>
           <button id="btn-generate-quiz" class="btn btn-primary w-full mt-2">Generate Room &amp; Kuis</button>
+        </div>
+
+        <!-- Peserta Member & Level: Host memilih member yang ikut kuis ini + level soalnya -->
+        <div class="glass-panel p-6 flex flex-col gap-4">
+          <div>
+            <h3 class="text-lg font-bold mb-1">Peserta Member &amp; Level</h3>
+            <p class="form-hint">Centang akun <strong>Member</strong> yang ikut kuis ini dan pilih levelnya. Saat member
+              scan barcode &amp; login, soal diacak dari level tersebut — berbeda tiap member dan tidak mengulang
+              soal yang pernah ia kerjakan di kuis lain.</p>
+          </div>
+          <div id="member-roster-list" class="flex flex-col max-h-96 overflow-y-auto pr-2">
+            <p class="text-gray-500 text-sm">Memuat daftar member...</p>
+          </div>
+          <p id="member-roster-summary" class="form-hint" role="status"></p>
+          <div class="member-add-form">
+            <div class="text-xs text-gray-400 font-bold uppercase">Member Baru (cepat)</div>
+            <div class="flex gap-2">
+              <input type="text" id="member-add-username" class="input-field flex-1" placeholder="Username member" maxlength="50"
+                     autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Username member baru">
+              <input type="password" id="member-add-password" class="input-field flex-1" placeholder="Password"
+                     autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Password member baru">
+            </div>
+            <button type="button" id="btn-member-add" class="btn btn-secondary text-sm w-full">Tambah Member</button>
+          </div>
         </div>
 
         <!-- Question Selection -->
@@ -253,6 +285,31 @@
           </ul>
         </div>
       </div>
+
+      <!-- Roster: member yang diizinkan ikut kuis ini + level soalnya -->
+      <div class="glass-panel p-6 mt-6" id="wait-roster-box">
+        <div class="flex justify-between items-center mb-4 gap-3" style="flex-wrap: wrap;">
+          <h3 class="text-lg font-bold">Member Terdaftar &amp; Levelnya</h3>
+          <span class="badge badge-member" id="wait-roster-count">0 Member</span>
+        </div>
+        <ul id="wait-roster-list" class="flex flex-col gap-2 max-h-96 overflow-y-auto">
+          <li class="text-gray-500 text-sm text-center py-4">Belum ada member terdaftar (semua peserta bisa gabung).</li>
+        </ul>
+        <!-- Editor roster: hanya tampil saat kuis belum dimulai -->
+        <div id="wait-roster-editor" class="hidden mt-4">
+          <div class="text-xs text-gray-400 font-bold uppercase mb-2">Tambah member (sebelum kuis dimulai)</div>
+          <div class="flex gap-2" style="flex-wrap: wrap;">
+            <select id="wait-roster-add-select" class="input-field flex-1" aria-label="Pilih member" style="min-width: 10rem;"></select>
+            <select id="wait-roster-add-level" class="input-field" aria-label="Level member" style="background-color: #0f172a;">
+              <option value="easy">Easy</option>
+              <option value="normal" selected>Normal</option>
+              <option value="hard">Hard</option>
+            </select>
+            <button type="button" id="btn-wait-roster-add" class="btn btn-primary text-sm">Tambah</button>
+          </div>
+          <p class="form-hint mt-2">Jika roster kosong, semua peserta bisa gabung. Member yang dihapus tidak bisa scan &amp; gabung ke kuis ini.</p>
+        </div>
+      </div>
     </section>
 
     <!-- 4. ACTIVE MONITORING & LIVE SCORE SECTION -->
@@ -264,6 +321,18 @@
           <p class="text-xs text-gray-400 mt-1">Sisa waktu kuis: <span id="monitor-countdown" class="host-countdown font-bold text-gray-200">--:--</span></p>
         </div>
         <button id="btn-finish-quiz" class="btn btn-danger text-sm">Akhiri Kuis</button>
+      </div>
+
+      <!-- Link & barcode sesi: sudah digenerate saat Host siap memulai pertanyaan.
+           Member yang scan (meski kuis sudah berjalan) langsung mendapat soal sesuai levelnya. -->
+      <div class="glass-panel p-4 mb-6 flex items-center gap-4" style="flex-wrap: wrap;">
+        <div id="monitor-qr-box" class="qr-box qr-box-small">QR Code</div>
+        <div class="flex-1" style="min-width: 12rem;">
+          <div class="text-xs text-gray-400 font-bold uppercase mb-1">Link &amp; Barcode Sesi (scan untuk gabung)</div>
+          <div id="monitor-join-url" class="join-url">-</div>
+          <p class="form-hint mt-1">Link sudah digenerate saat kuis siap dimulai. Member yang scan — meski kuis sudah berjalan — langsung mengerjakan soal acak sesuai levelnya.</p>
+          <button type="button" id="btn-copy-join-monitor" class="btn btn-secondary text-sm mt-2">Salin Link</button>
+        </div>
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-6">

@@ -18,6 +18,7 @@ import pytest
 STATIC = Path(__file__).resolve().parent.parent / "static"
 PAGES = {
     "index.html": ["js/landing.js"],
+    "member.html": ["js/member.js"],
     "client.html": ["js/room.js", "js/result.js"],
     "host.html": ["js/host.js", "js/question-bank.js"],
     "admin.html": ["js/admin.js"],
